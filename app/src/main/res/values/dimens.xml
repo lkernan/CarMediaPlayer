@@ -8,9 +8,10 @@
     <dimen name="spacing_lg">36dp</dimen>
     <dimen name="spacing_xl">60dp</dimen>
 
-    <!-- Top source bar -->
+    <!-- Left nav sidebar -->
+    <dimen name="side_nav_width">220dp</dimen>
+    <!-- Reused as the minimum touch-target height for source + nav buttons -->
     <dimen name="top_bar_height">96dp</dimen>
-    <dimen name="source_btn_min_width">210dp</dimen>
 
     <!-- Browse sidebar -->
     <dimen name="browse_sidebar_width">420dp</dimen>
