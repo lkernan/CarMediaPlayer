@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NIGHT / DARK palette -->
+<resources>
+    <color name="bg_dark">#FF0A0A0A</color>
+    <color name="bg_surface">#FF141414</color>
+    <color name="bg_card">#FF1E1E1E</color>
+    <color name="bg_sidebar">#FF111111</color>
+    <color name="bg_selected">#FF252525</color>
+    <color name="accent">#FF1DB954</color>
+    <color name="accent_dim">#331DB954</color>
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#99FFFFFF</color>
+    <color name="text_hint">#55FFFFFF</color>
+    <color name="divider">#18FFFFFF</color>
+    <color name="top_bar_bg">#FF0D0D0D</color>
+    <color name="mini_player_bg">#EF0A0A0A</color>
+    <color name="widget_bg">#CC000000</color>
+    <!-- Always-dark colour for icons / text placed on the accent (green) background -->
+    <color name="on_accent">#FF111111</color>
+    <!-- Now Playing ambient scrim — dark in night mode -->
+    <color name="now_playing_scrim">#A6000000</color>
+</resources>

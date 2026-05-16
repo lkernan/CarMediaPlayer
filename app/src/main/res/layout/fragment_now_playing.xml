@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Full-screen now playing for 1920×720 landscape.
+     Root is a FrameLayout so the blurred-art background can sit behind everything.
+     Layer order (back → front):
+       1. bg_art      — album art loaded tiny (64 px) so the upscale IS the blur
+       2. bg_scrim    — semi-transparent dark overlay for readability
+       3. content     — the original horizontal layout (panels are now transparent) -->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- ── Ambient blurred background ─────────────────────────────────── -->
+    <ImageView
+        android:id="@+id/bg_art"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:background="@color/bg_dark"
+        android:contentDescription="@null"/>
+
+    <!-- Scrim — white at 65 % in day mode, black at 65 % in night mode.
+         Keeps text and controls legible over any artwork colour. -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/now_playing_scrim"/>
+
+    <!-- ── Foreground content ──────────────────────────────────────────── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal">
+
+        <!-- ── Album art panel (transparent — blur shows through) ──────── -->
+        <FrameLayout
+            android:layout_width="@dimen/now_playing_art_panel"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@+id/album_art"
+                android:layout_width="@dimen/now_playing_art_size"
+                android:layout_height="@dimen/now_playing_art_size"
+                android:layout_gravity="center"
+                android:scaleType="centerCrop"
+                android:background="@color/bg_card"
+                android:contentDescription="@string/unknown_album"/>
+
+        </FrameLayout>
+
+        <!-- ── Info + controls panel ───────────────────────────────────── -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingHorizontal="@dimen/spacing_xl"
+            android:paddingVertical="@dimen/spacing_lg">
+
+            <!-- Close / back to browse -->
+            <ImageButton
+                android:id="@+id/btn_close"
+                android:layout_width="@dimen/now_playing_close_btn"
+                android:layout_height="@dimen/now_playing_close_btn"
+                android:layout_gravity="end"
+                android:padding="@dimen/spacing_md"
+                android:scaleType="fitCenter"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_skip_next"
+                android:rotation="90"
+                android:tint="@color/text_secondary"
+                android:contentDescription="Close Now Playing"/>
+
+            <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
+
+            <!-- Track metadata -->
+            <TextView
+                android:id="@+id/track_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="2"
+                android:ellipsize="end"
+                android:textColor="@color/text_primary"
+                android:textSize="@dimen/text_xl"
+                android:textStyle="bold"
+                android:text="—"/>
+
+            <TextView
+                android:id="@+id/track_artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/spacing_sm"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="@color/accent"
+                android:textSize="@dimen/text_lg"
+                android:text="—"/>
+
+            <TextView
+                android:id="@+id/track_album"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/spacing_xs"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/text_md"/>
+
+            <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
+
+            <!-- Progress -->
+            <SeekBar
+                android:id="@+id/seek_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:progressTint="@color/accent"
+                android:thumbTint="@color/accent"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="@dimen/spacing_xs">
+
+                <TextView
+                    android:id="@+id/time_position"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="@dimen/text_xs"
+                    android:text="0:00"/>
+
+                <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
+
+                <TextView
+                    android:id="@+id/time_duration"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="@dimen/text_xs"
+                    android:text="0:00"/>
+
+            </LinearLayout>
+
+            <!-- Transport controls: [Shuffle] [Prev] [Play/Pause] [Next] [Repeat] -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="@dimen/spacing_lg"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <ImageButton
+                    android:id="@+id/btn_shuffle"
+                    android:layout_width="@dimen/now_playing_control_btn"
+                    android:layout_height="@dimen/now_playing_control_btn"
+                    android:padding="@dimen/spacing_md"
+                    android:scaleType="fitCenter"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_shuffle"
+                    android:tint="@color/text_hint"
+                    android:contentDescription="Shuffle"/>
+
+                <ImageButton
+                    android:id="@+id/btn_previous"
+                    android:layout_width="@dimen/now_playing_control_btn"
+                    android:layout_height="@dimen/now_playing_control_btn"
+                    android:layout_marginHorizontal="@dimen/spacing_md"
+                    android:padding="@dimen/spacing_md"
+                    android:scaleType="fitCenter"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_skip_previous"
+                    android:tint="@color/text_primary"
+                    android:contentDescription="Previous"/>
+
+                <ImageButton
+                    android:id="@+id/btn_play_pause"
+                    android:layout_width="@dimen/now_playing_play_btn"
+                    android:layout_height="@dimen/now_playing_play_btn"
+                    android:layout_marginHorizontal="@dimen/spacing_xl"
+                    android:padding="@dimen/spacing_lg"
+                    android:scaleType="fitCenter"
+                    android:background="@drawable/bg_play_button"
+                    android:src="@drawable/ic_play"
+                    android:tint="@color/on_accent"
+                    android:contentDescription="Play / Pause"/>
+
+                <ImageButton
+                    android:id="@+id/btn_next"
+                    android:layout_width="@dimen/now_playing_control_btn"
+                    android:layout_height="@dimen/now_playing_control_btn"
+                    android:layout_marginHorizontal="@dimen/spacing_md"
+                    android:padding="@dimen/spacing_md"
+                    android:scaleType="fitCenter"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_skip_next"
+                    android:tint="@color/text_primary"
+                    android:contentDescription="Next"/>
+
+                <ImageButton
+                    android:id="@+id/btn_repeat"
+                    android:layout_width="@dimen/now_playing_control_btn"
+                    android:layout_height="@dimen/now_playing_control_btn"
+                    android:padding="@dimen/spacing_md"
+                    android:scaleType="fitCenter"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_repeat"
+                    android:tint="@color/text_hint"
+                    android:contentDescription="Repeat"/>
+
+            </LinearLayout>
+
+            <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1"/>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

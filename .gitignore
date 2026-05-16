@@ -1,0 +1,16 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# Platform signing keys — never commit these
+app/keys/
+
+# Project exclude paths
+/app/build/
+/app/build/intermediates/javac/debug/classes/

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Media</string>
+    <string name="source_usb1">USB</string>
+    <string name="source_online">Subsonic</string>
+    <string name="source_bt">Bluetooth</string>
+    <string name="subsonic_settings">Settings…</string>
+    <string name="subsonic_label_url">Server URL</string>
+    <string name="subsonic_hint_url">http://192.168.1.10:4533</string>
+    <string name="subsonic_label_username">Username</string>
+    <string name="subsonic_label_password">Password</string>
+    <string name="subsonic_dialog_title">Subsonic / Navidrome Server</string>
+    <string name="subsonic_not_configured">Server not configured — tap Settings…</string>
+    <string name="now_playing">Now Playing</string>
+    <string name="artists">Artists</string>
+    <string name="albums">Albums</string>
+    <string name="tracks">Tracks</string>
+    <string name="no_tracks">No tracks found</string>
+    <string name="scan_usb">Scan USB</string>
+    <string name="unknown_title">Unknown</string>
+    <string name="unknown_artist">Unknown Artist</string>
+    <string name="unknown_album">Unknown Album</string>
+    <string name="back">Back</string>
+    <string name="play_all">Play All</string>
+</resources>

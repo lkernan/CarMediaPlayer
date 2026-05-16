@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DAY / LIGHT palette  (values-night/colors.xml holds the dark overrides) -->
+<resources>
+    <color name="bg_dark">#FFF5F5F5</color>
+    <color name="bg_surface">#FFFFFFFF</color>
+    <color name="bg_card">#FFE4E6EA</color>
+    <color name="bg_sidebar">#FFE8EAED</color>
+    <color name="bg_selected">#FFDDE1E7</color>
+    <color name="accent">#FF1DB954</color>
+    <color name="accent_dim">#331DB954</color>
+    <color name="text_primary">#FF1C1E21</color>
+    <color name="text_secondary">#FF65676B</color>
+    <color name="text_hint">#FF8A8D91</color>
+    <color name="divider">#FFCED0D4</color>
+    <color name="top_bar_bg">#FFFFFFFF</color>
+    <color name="mini_player_bg">#FFF0F2F5</color>
+    <color name="widget_bg">#CCF5F5F5</color>
+    <!-- Always-dark colour for icons / text placed on the accent (green) background -->
+    <color name="on_accent">#FF111111</color>
+    <!-- Now Playing ambient scrim — light in day mode, dark in night mode -->
+    <color name="now_playing_scrim">#A6FFFFFF</color>
+</resources>

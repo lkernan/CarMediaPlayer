@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Side-by-side: narrow sidebar (categories + back) | wide list -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="@color/bg_dark">
+
+    <!-- ── Left sidebar ─────────────────────────────────────────────── -->
+    <LinearLayout
+        android:layout_width="@dimen/browse_sidebar_width"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:background="@color/bg_sidebar">
+
+        <!-- Back button (hidden at root level) -->
+        <Button
+            android:id="@+id/btn_back"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="@dimen/sidebar_back_min_height"
+            android:text="@string/back"
+            android:drawableStart="@drawable/ic_skip_previous"
+            android:drawablePadding="@dimen/spacing_sm"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="@dimen/spacing_md"
+            android:textColor="@color/text_secondary"
+            android:textSize="@dimen/text_sm"
+            android:background="?attr/selectableItemBackground"
+            android:visibility="gone"/>
+
+        <View
+            android:id="@+id/back_divider"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider"
+            android:visibility="gone"/>
+
+        <!-- Category buttons: Artists / Albums / Tracks -->
+        <Button
+            android:id="@+id/btn_cat_artists"
+            style="@style/CategoryButton"
+            android:text="@string/artists"/>
+
+        <Button
+            android:id="@+id/btn_cat_albums"
+            style="@style/CategoryButton"
+            android:text="@string/albums"/>
+
+        <Button
+            android:id="@+id/btn_cat_tracks"
+            style="@style/CategoryButton"
+            android:text="@string/tracks"/>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider"
+            android:layout_marginTop="@dimen/spacing_sm"/>
+
+        <Button
+            android:id="@+id/btn_scan"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="@dimen/sidebar_btn_action_min_height"
+            android:text="@string/scan_usb"
+            android:textColor="@color/text_hint"
+            android:textSize="@dimen/text_xs"
+            android:background="?attr/selectableItemBackground"/>
+
+        <!-- Shown only when source is Subsonic -->
+        <Button
+            android:id="@+id/btn_subsonic_settings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="@dimen/sidebar_btn_action_min_height"
+            android:text="@string/subsonic_settings"
+            android:textColor="@color/text_hint"
+            android:textSize="@dimen/text_xs"
+            android:background="?attr/selectableItemBackground"
+            android:visibility="gone"/>
+
+        <!-- Spacer: pushes breadcrumb to bottom of sidebar -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"/>
+
+        <!-- Breadcrumb label (current folder name) -->
+        <TextView
+            android:id="@+id/label_breadcrumb"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="@dimen/spacing_md"
+            android:paddingVertical="@dimen/spacing_sm"
+            android:maxLines="3"
+            android:textColor="@color/text_hint"
+            android:textSize="@dimen/text_xs"
+            android:visibility="gone"/>
+
+    </LinearLayout>
+
+    <!-- Vertical divider -->
+    <View
+        android:layout_width="1dp"
+        android:layout_height="match_parent"
+        android:background="@color/divider"/>
+
+    <!-- ── Right: play-all header + track/artist/album list ────────── -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <!-- Play All button — shown only when the list contains playable tracks -->
+        <Button
+            android:id="@+id/btn_play_all"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="@dimen/list_play_all_min_height"
+            android:text="@string/play_all"
+            android:drawableStart="@drawable/ic_play"
+            android:drawablePadding="@dimen/spacing_sm"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="@dimen/spacing_md"
+            android:textColor="@color/accent"
+            android:textSize="@dimen/text_sm"
+            android:textAllCaps="false"
+            android:background="?attr/selectableItemBackground"
+            android:visibility="gone"/>
+
+        <View
+            android:id="@+id/play_all_divider"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider"
+            android:visibility="gone"/>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/browse_list"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scrollbars="vertical"
+                android:clipToPadding="false"
+                android:paddingEnd="56dp"
+                android:paddingVertical="@dimen/spacing_xs"/>
+
+            <TextView
+                android:id="@+id/empty_state"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="@string/no_tracks"
+                android:textColor="@color/text_hint"
+                android:textSize="@dimen/text_md"
+                android:visibility="gone"/>
+
+            <!-- Alphabet fast-scroll strip — overlaid on the right edge -->
+            <LinearLayout
+                android:id="@+id/alphabet_strip"
+                android:layout_width="56dp"
+                android:layout_height="match_parent"
+                android:layout_gravity="end"
+                android:orientation="vertical"
+                android:background="@color/bg_sidebar"
+                android:visibility="gone"/>
+
+        </FrameLayout>
+
+    </LinearLayout>
+
+</LinearLayout>

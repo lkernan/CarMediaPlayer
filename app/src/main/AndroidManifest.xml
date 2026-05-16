@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sharedUserId="android.uid.system">
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS"/>
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+
+    <application
+        android:name=".MyApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/AppTheme"
+        android:allowBackup="false"
+        android:supportsRtl="false"
+        android:usesCleartextTraffic="true">
+
+        <!-- ════════ Activity ════════ -->
+        <activity
+            android:name="com.saicmotor.media.ui.activity.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="keyboard|layoutDirection|locale">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- ════════ Main service — MediaBrowserServiceCompat + ExoPlayer ════════ -->
+        <service
+            android:name="com.saicmotor.media.service.MediaService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="com.saicmotor.media.service.MediaService"/>
+                <action android:name="android.media.browse.MediaBrowserService"/>
+            </intent-filter>
+        </service>
+
+        <!-- ════════ MediaBrowserServices (each isolated process) ════════ -->
+        <service
+            android:name="com.saicmotor.media.mbs.Usb1MediaBrowserService"
+            android:exported="true"
+            android:process=":Usb1MediaBrowserService">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService"/>
+            </intent-filter>
+        </service>
+
+        <service
+            android:name="com.saicmotor.media.mbs.Usb2MediaBrowserService"
+            android:exported="true"
+            android:process=":Usb2MediaBrowserService">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService"/>
+            </intent-filter>
+        </service>
+
+        <service
+            android:name="com.saicmotor.media.mbs.OnlineMediaBrowserService"
+            android:exported="true"
+            android:process=":OnlineMediaBrowserService">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService"/>
+            </intent-filter>
+        </service>
+
+        <service
+            android:name="com.saicmotor.media.mbs.BtMediaBrowserService"
+            android:exported="true"
+            android:process=":BtMediaBrowserService">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService"/>
+            </intent-filter>
+        </service>
+
+        <!-- ════════ Boot receiver ════════ -->
+        <receiver
+            android:name=".boot.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- ════════ Widget receivers ════════ -->
+        <receiver
+            android:name="com.saicmotor.media.widget.MediaWidgetProvider_1x1"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="com.saicmotor.media.widget.start_activity"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_provider_info_1x1"/>
+        </receiver>
+
+        <receiver
+            android:name="com.saicmotor.media.widget.MediaWidgetProvider_2x1"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="com.saicmotor.media.widget.start_activity"/>
+                <action android:name="com.saicmotor.media.widget.play_pause"/>
+                <action android:name="com.saicmotor.media.widget.previous"/>
+                <action android:name="com.saicmotor.media.widget.next"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_provider_info_2x1"/>
+        </receiver>
+
+        <receiver
+            android:name="com.saicmotor.media.widget.MediaWidgetProvider_2x2"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="com.saicmotor.media.widget.start_activity"/>
+                <action android:name="com.saicmotor.media.widget.play_pause"/>
+                <action android:name="com.saicmotor.media.widget.previous"/>
+                <action android:name="com.saicmotor.media.widget.next"/>
+                <action android:name="com.saicmotor.media.widget.source_prev"/>
+                <action android:name="com.saicmotor.media.widget.source_next"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_provider_info_2x2"/>
+        </receiver>
+
+    </application>
+</manifest>
