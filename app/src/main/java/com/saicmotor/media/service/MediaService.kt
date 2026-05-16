@@ -88,6 +88,10 @@ class MediaService : MediaBrowserServiceCompat() {
         const val EXTRA_PARENT_ID   = "parent_id"
         const val EXTRA_SOURCE      = "source"
 
+        // SharedPreferences keys for persisted playback preferences
+        private const val PREF_SHUFFLE     = "shuffle_enabled"
+        private const val PREF_REPEAT_MODE = "repeat_mode"
+
         // All actions exposed to external controllers (launcher, BT, etc.)
         private const val SESSION_ACTIONS =
             PlaybackStateCompat.ACTION_PLAY or
@@ -105,6 +109,8 @@ class MediaService : MediaBrowserServiceCompat() {
     private lateinit var session: MediaSessionCompat
     private lateinit var btManager: BluetoothMediaManager
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    private val prefs by lazy { getSharedPreferences("playback_prefs", MODE_PRIVATE) }
 
     /** Tracks which source is currently in the foreground so transport controls
      *  can be routed correctly — ExoPlayer for USB/Online, AVRCP for Bluetooth. */
@@ -182,6 +188,12 @@ class MediaService : MediaBrowserServiceCompat() {
             .build()
         player.addListener(playerListener)
 
+        // Restore persisted shuffle / repeat preferences from the previous session.
+        // Applied before the session is created so the initial setShuffleMode /
+        // setRepeatMode calls on the session reflect the restored values.
+        player.shuffleModeEnabled = prefs.getBoolean(PREF_SHUFFLE, false)
+        player.repeatMode         = prefs.getInt(PREF_REPEAT_MODE, Player.REPEAT_MODE_OFF)
+
         session = MediaSessionCompat(this, "MediaService").apply {
             setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
@@ -202,6 +214,8 @@ class MediaService : MediaBrowserServiceCompat() {
             addDataScheme("file")
         }
         registerReceiver(mountReceiver, filter)
+
+        UsbScanner.init(this)
 
         btManager = BluetoothMediaManager(this).apply {
             listener = btListener
@@ -365,10 +379,12 @@ class MediaService : MediaBrowserServiceCompat() {
                 else PlaybackStateCompat.SHUFFLE_MODE_NONE
             )
             session.setPlaybackState(buildPlaybackState())
+            prefs.edit().putBoolean(PREF_SHUFFLE, shuffleModeEnabled).apply()
         }
         override fun onRepeatModeChanged(repeatMode: Int) {
             session.setRepeatMode(exoRepeatToCompat(repeatMode))
             session.setPlaybackState(buildPlaybackState())
+            prefs.edit().putInt(PREF_REPEAT_MODE, repeatMode).apply()
         }
     }
 
@@ -653,7 +669,7 @@ class MediaService : MediaBrowserServiceCompat() {
 
     // ── USB filesystem queries ─────────────────────────────────────────────
 
-    private fun usbArtists(usbPath: String?): MutableList<MediaBrowserCompat.MediaItem> {
+    private suspend fun usbArtists(usbPath: String?): MutableList<MediaBrowserCompat.MediaItem> {
         if (usbPath == null) return mutableListOf()
         return UsbScanner.scan(usbPath)
             .map { it.artist }.distinct().sorted()
@@ -666,7 +682,7 @@ class MediaService : MediaBrowserServiceCompat() {
             }.toMutableList()
     }
 
-    private fun usbAllAlbums(usbPath: String?): MutableList<MediaBrowserCompat.MediaItem> {
+    private suspend fun usbAllAlbums(usbPath: String?): MutableList<MediaBrowserCompat.MediaItem> {
         if (usbPath == null) return mutableListOf()
         val tracks = UsbScanner.scan(usbPath)
         data class Key(val artist: String, val album: String)
@@ -684,7 +700,7 @@ class MediaService : MediaBrowserServiceCompat() {
         }.toMutableList()
     }
 
-    private fun usbAlbumsByArtist(
+    private suspend fun usbAlbumsByArtist(
         usbPath: String?, artistName: String
     ): MutableList<MediaBrowserCompat.MediaItem> {
         if (usbPath == null) return mutableListOf()
@@ -703,7 +719,7 @@ class MediaService : MediaBrowserServiceCompat() {
             }.toMutableList()
     }
 
-    private fun usbTracksInAlbum(
+    private suspend fun usbTracksInAlbum(
         usbPath: String?, artistName: String, albumName: String
     ): MutableList<MediaBrowserCompat.MediaItem> {
         if (usbPath == null) return mutableListOf()
@@ -713,7 +729,7 @@ class MediaService : MediaBrowserServiceCompat() {
             .map { it.toMediaItem() }.toMutableList()
     }
 
-    private fun usbAllTracks(usbPath: String?): MutableList<MediaBrowserCompat.MediaItem> {
+    private suspend fun usbAllTracks(usbPath: String?): MutableList<MediaBrowserCompat.MediaItem> {
         if (usbPath == null) return mutableListOf()
         return UsbScanner.scan(usbPath)
             .sortedBy { it.title }
