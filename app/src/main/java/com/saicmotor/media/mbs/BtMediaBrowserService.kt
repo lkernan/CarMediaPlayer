@@ -23,7 +23,10 @@ class BtMediaBrowserService : MediaBrowserServiceCompat() {
 
     private val connectionCallback = object : MediaBrowserCompat.ConnectionCallback() {
         override fun onConnected() {
-            setSessionToken(mediaBrowser.sessionToken)
+            // Guard: setSessionToken() may only be called once per service instance.
+            // The reconnect triggered from onConnectionSuspended() below would
+            // otherwise crash this proxy on its second onConnected callback.
+            if (sessionToken == null) setSessionToken(mediaBrowser.sessionToken)
             // No children to deliver — resolve any pending result with an empty list
             pendingResult?.sendResult(mutableListOf())
             pendingResult = null

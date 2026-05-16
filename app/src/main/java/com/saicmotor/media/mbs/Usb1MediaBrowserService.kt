@@ -20,8 +20,12 @@ class Usb1MediaBrowserService : MediaBrowserServiceCompat() {
 
     private val connectionCallback = object : MediaBrowserCompat.ConnectionCallback() {
         override fun onConnected() {
-            setSessionToken(mediaBrowser.sessionToken)
-            pendingResult?.let { result ->
+            // setSessionToken() can only be called once per service instance — calling
+            // it again throws IllegalStateException, which previously crashed this
+            // proxy process every time MediaBrowserCompat reconnected after a
+            // transient disconnect.
+            if (sessionToken == null) setSessionToken(mediaBrowser.sessionToken)
+            pendingResult?.let { _ ->
                 mediaBrowser.subscribe(MediaService.USB1_ROOT, subscriptionCallback)
                 pendingResult = null
             }

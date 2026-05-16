@@ -13,7 +13,8 @@ class OnlineMediaBrowserService : MediaBrowserServiceCompat() {
 
     private val connectionCallback = object : MediaBrowserCompat.ConnectionCallback() {
         override fun onConnected() {
-            setSessionToken(mediaBrowser.sessionToken)
+            // Guard: setSessionToken() may only be called once per service instance.
+            if (sessionToken == null) setSessionToken(mediaBrowser.sessionToken)
         }
     }
 

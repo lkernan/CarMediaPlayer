@@ -19,7 +19,10 @@ class Usb2MediaBrowserService : MediaBrowserServiceCompat() {
 
     private val connectionCallback = object : MediaBrowserCompat.ConnectionCallback() {
         override fun onConnected() {
-            setSessionToken(mediaBrowser.sessionToken)
+            // Guard: setSessionToken() may only be called once per service
+            // instance.  Without this check, MediaBrowserCompat's automatic
+            // reconnect after a transient disconnect crashes the proxy.
+            if (sessionToken == null) setSessionToken(mediaBrowser.sessionToken)
             pendingResult?.let {
                 mediaBrowser.subscribe(MediaService.USB1_ROOT, subscriptionCallback)
                 pendingResult = null

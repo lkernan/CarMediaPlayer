@@ -92,6 +92,27 @@ class MediaService : MediaBrowserServiceCompat() {
         private const val PREF_SHUFFLE     = "shuffle_enabled"
         private const val PREF_REPEAT_MODE = "repeat_mode"
 
+        // Hidden framework flag (android.media.session.MediaSession#FLAG_EXCLUSIVE_GLOBAL_PRIORITY).
+        // Reserved for system apps — accessible to us because we ship with
+        // sharedUserId="android.uid.system".  Without this, the SAIC radio
+        // app's globally-priority session intercepts steering-wheel media
+        // keys before they reach us, and they vanish (radio is inactive).
+        private const val FLAG_EXCLUSIVE_GLOBAL_PRIORITY = 0x10000
+
+        // SAIC's custom AudioAttributes Bundle key + values.  The launcher's
+        // OnAudioSourceChangeCallBack reads this from our AudioFocusRequest
+        // and uses it (together with the calling package name) to decide
+        // which MediaController to bind to its title bar / now playing tile.
+        //
+        // From com.saicmotor.launcher.model.MediaModel (decompiled):
+        //   pkg == "com.saicmotor.media"  →  carSourceType=6 → mMusicController
+        //                                 →  carSourceType=7 → mMusic2Controller
+        //                                 →  carSourceType=5 → mBTMusicController
+        private const val CAR_SOURCE_KEY            = "key_car_source_type"
+        private const val CAR_SOURCE_TYPE_USB1      = 6
+        private const val CAR_SOURCE_TYPE_USB2      = 7
+        private const val CAR_SOURCE_TYPE_BT_MUSIC  = 5
+
         // All actions exposed to external controllers (launcher, BT, etc.)
         private const val SESSION_ACTIONS =
             PlaybackStateCompat.ACTION_PLAY or
@@ -116,18 +137,35 @@ class MediaService : MediaBrowserServiceCompat() {
      *  can be routed correctly — ExoPlayer for USB/Online, AVRCP for Bluetooth. */
     private var activeSource: String = USB1_ROOT
 
-    // Audio focus held on behalf of the A2DP stream while BT is the active source.
-    // Without this the A2DP audio has no claimant and the system won't route it
-    // to the car's speakers.
-    private var btAudioFocusRequest: AudioFocusRequest? = null
-    private val btAudioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        if (activeSource != BT_ROOT) return@OnAudioFocusChangeListener
+    // Unified audio focus management.  We always hold focus while a source is
+    // active so that:
+    //   - the A2DP stream has a claimant and routes to the car's speakers (BT)
+    //   - the SAIC launcher's OnAudioSourceChangeCallBack sees us as the active
+    //     media source and binds its title-bar UI to our MediaSession (all sources)
+    //
+    // The focus request carries a Bundle with key_car_source_type set per the
+    // active source — that's the value the launcher reads to decide which of
+    // its internal MediaController references to bind to.
+    private var mediaFocusRequest: AudioFocusRequest? = null
+
+    /** True if we paused ExoPlayer on a transient focus loss and should
+     *  resume on AUDIOFOCUS_GAIN. */
+    private var pausedByFocusLoss = false
+
+    private val mediaFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (activeSource) {
+            BT_ROOT -> handleBtFocusChange(change)
+            else    -> handleExoFocusChange(change)
+        }
+    }
+
+    private fun handleBtFocusChange(change: Int) {
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                // Another app (navigation, phone call, another media app) took the
-                // speakers — tell the phone to stop streaming so it doesn't bleed
-                // through when the other app is talking.
+                // Another app (navigation, phone call, another media app) took
+                // the speakers — tell the phone to stop streaming so its audio
+                // doesn't bleed under whatever is talking on top.
                 btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PAUSE)
                 session.setPlaybackState(
                     PlaybackStateCompat.Builder()
@@ -149,6 +187,83 @@ class MediaService : MediaBrowserServiceCompat() {
             // AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK — let the system handle volume
             // ducking on the A2DP stream; no need to pause the phone.
         }
+    }
+
+    private fun handleExoFocusChange(change: Int) {
+        when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (pausedByFocusLoss) {
+                    pausedByFocusLoss = false
+                    player.play()
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (player.isPlaying) {
+                    pausedByFocusLoss = true
+                    player.pause()
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                // Permanent — don't auto-resume.
+                pausedByFocusLoss = false
+                if (player.isPlaying) player.pause()
+            }
+        }
+    }
+
+    private fun carSourceTypeForActive(): Int = when (activeSource) {
+        BT_ROOT -> CAR_SOURCE_TYPE_BT_MUSIC
+        else    -> CAR_SOURCE_TYPE_USB1
+    }
+
+    /**
+     * Builds the AudioAttributes used for our focus request, attaching the
+     * SAIC-custom Bundle that identifies our carSourceType.
+     *
+     * `AudioAttributes.Builder.addBundle(Bundle)` is `@hide` in stock AOSP
+     * but exposed in SAIC's customised framework — we reach it via reflection.
+     * Our app runs as system UID (sharedUserId="android.uid.system") so the
+     * call succeeds.  If the method ever disappears focus still works; the
+     * launcher just won't switch its tile to us.
+     */
+    private fun buildMediaAudioAttributes(carSourceType: Int): android.media.AudioAttributes {
+        val builder = android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+
+        try {
+            val bundle = Bundle().apply { putInt(CAR_SOURCE_KEY, carSourceType) }
+            val addBundle = android.media.AudioAttributes.Builder::class.java
+                .getDeclaredMethod("addBundle", Bundle::class.java)
+            addBundle.invoke(builder, bundle)
+        } catch (_: Throwable) {
+            // SAIC hidden API not present — carry on without the bundle.
+        }
+
+        return builder.build()
+    }
+
+    private fun requestMediaFocus(): Boolean {
+        // If we already hold focus for the current source, nothing to do.
+        if (mediaFocusRequest != null) return true
+
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(buildMediaAudioAttributes(carSourceTypeForActive()))
+            .setOnAudioFocusChangeListener(mediaFocusListener)
+            .build()
+        mediaFocusRequest = request
+
+        val am = getSystemService(AudioManager::class.java)
+        return am.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    private fun abandonMediaFocus() {
+        mediaFocusRequest?.let {
+            getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it)
+        }
+        mediaFocusRequest = null
+        pausedByFocusLoss = false
     }
 
     // ── Mount receiver ─────────────────────────────────────────────────────
@@ -182,7 +297,12 @@ class MediaService : MediaBrowserServiceCompat() {
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .build(),
-                /* handleAudioFocus = */ true
+                // We handle audio focus ourselves so we can attach the SAIC
+                // key_car_source_type Bundle to the focus request — without
+                // that the launcher doesn't recognise us as the active media
+                // source and steering-wheel keys / now playing tile stay
+                // pointed at whichever app was active before.
+                /* handleAudioFocus = */ false
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
@@ -191,7 +311,8 @@ class MediaService : MediaBrowserServiceCompat() {
         session = MediaSessionCompat(this, "MediaService").apply {
             setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
-                MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
+                MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS or
+                FLAG_EXCLUSIVE_GLOBAL_PRIORITY
             )
             setCallback(SessionCompatCallback())
             setPlaybackState(buildPlaybackState())
@@ -247,7 +368,7 @@ class MediaService : MediaBrowserServiceCompat() {
     override fun onDestroy() {
         unregisterReceiver(mountReceiver)
         btManager.unregister()
-        abandonBtAudioFocus()
+        abandonMediaFocus()
         session.release()
         player.release()
         serviceScope.cancel()
@@ -263,46 +384,30 @@ class MediaService : MediaBrowserServiceCompat() {
         val prev = activeSource
         activeSource = src
 
-        when {
-            src == BT_ROOT -> {
-                // Pause ExoPlayer — it will abandon its own audio focus as part of pausing
+        // Drop the previous source's focus (with its now-stale carSourceType)
+        // before switching.  When leaving BT we also have to tell the phone to
+        // stop streaming first, otherwise A2DP audio bleeds under whatever
+        // source we're switching to.
+        if (prev == BT_ROOT) {
+            btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PAUSE)
+        }
+        abandonMediaFocus()
+
+        when (src) {
+            BT_ROOT -> {
+                // BT is now active.  Stop ExoPlayer if it was running and grab
+                // focus straight away so the A2DP stream has a claimant and
+                // routes to the car's speakers.
                 if (player.isPlaying) player.pause()
-                // Now request audio focus ourselves so the A2DP stream gets routed
-                // to the car's speakers.  Without an active focus holder the system
-                // typically won't output the BT audio.
-                requestBtAudioFocus()
+                requestMediaFocus()
                 session.setPlaybackState(buildPlaybackState())
             }
-            prev == BT_ROOT -> {
-                // Tell the phone to stop streaming before we give up the speakers,
-                // otherwise A2DP audio bleeds under the new source.
-                btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PAUSE)
-                // Release our manual focus claim.  ExoPlayer re-acquires focus
-                // automatically when play() is next called.
-                abandonBtAudioFocus()
+            else -> {
+                // USB / Online: focus will be requested lazily when playback
+                // actually starts (onIsPlayingChanged), so we don't grab the
+                // speakers from another app while we're idle.
             }
         }
-    }
-
-    private fun requestBtAudioFocus() {
-        val am  = getSystemService(AudioManager::class.java)
-        val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(
-                android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            .setOnAudioFocusChangeListener(btAudioFocusListener)
-            .build()
-        btAudioFocusRequest = req
-        am.requestAudioFocus(req)
-    }
-
-    private fun abandonBtAudioFocus() {
-        val am = getSystemService(AudioManager::class.java)
-        btAudioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
-        btAudioFocusRequest = null
     }
 
     // ── Bluetooth listener ─────────────────────────────────────────────────
@@ -314,7 +419,7 @@ class MediaService : MediaBrowserServiceCompat() {
             // fall back to USB so the ExoPlayer controls work again.
             if (!connected && activeSource == BT_ROOT) {
                 // No need to send PAUSE — the device is gone — but clean up focus.
-                abandonBtAudioFocus()
+                abandonMediaFocus()
                 activeSource = USB1_ROOT
             }
         }
@@ -352,6 +457,10 @@ class MediaService : MediaBrowserServiceCompat() {
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            // Acquire audio focus on first play after idle for USB / Online —
+            // BT manages its own focus from activateSource().  Held until the
+            // source is switched away from us or the service is destroyed.
+            if (isPlaying && activeSource != BT_ROOT) requestMediaFocus()
             session.setPlaybackState(buildPlaybackState())
             refreshNotification()
             pushWidgets()
