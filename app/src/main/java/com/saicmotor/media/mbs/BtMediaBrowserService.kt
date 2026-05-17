@@ -32,8 +32,13 @@ class BtMediaBrowserService : MediaBrowserServiceCompat() {
             pendingResult = null
         }
         override fun onConnectionSuspended() {
-            // MediaService died; reconnect so the token stays fresh
-            if (!mediaBrowser.isConnected) mediaBrowser.connect()
+            // MediaService died.  Reconnecting here wouldn't help because
+            // setSessionToken() is one-shot per proxy instance — even after
+            // mediaBrowser reconnects with the new token we couldn't push
+            // it through to our caller (the launcher).  Self-terminate so
+            // the launcher's next bind respawns this proxy fresh and the
+            // new token flows through cleanly.
+            android.os.Process.killProcess(android.os.Process.myPid())
         }
     }
 

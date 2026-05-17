@@ -30,6 +30,13 @@ class Usb1MediaBrowserService : MediaBrowserServiceCompat() {
                 pendingResult = null
             }
         }
+        override fun onConnectionSuspended() {
+            // MediaService died — its session token is now stale and this proxy
+            // can't update it (setSessionToken is one-shot).  Kill ourselves so
+            // the launcher's next bind spawns a fresh proxy process that picks
+            // up the new session token from a freshly-started MediaService.
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
     }
 
     private val subscriptionCallback = object : MediaBrowserCompat.SubscriptionCallback() {

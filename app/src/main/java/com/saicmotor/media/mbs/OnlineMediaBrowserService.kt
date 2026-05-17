@@ -16,6 +16,11 @@ class OnlineMediaBrowserService : MediaBrowserServiceCompat() {
             // Guard: setSessionToken() may only be called once per service instance.
             if (sessionToken == null) setSessionToken(mediaBrowser.sessionToken)
         }
+        override fun onConnectionSuspended() {
+            // MediaService died — its session token is now stale.  Self-terminate
+            // so the launcher's next bind respawns this proxy with the new token.
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
     }
 
     override fun onCreate() {

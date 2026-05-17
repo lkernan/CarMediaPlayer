@@ -205,9 +205,15 @@ class MediaService : MediaBrowserServiceCompat() {
                 }
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
-                // Permanent — don't auto-resume.
+                // Permanent loss — another app (e.g. SAIC radio) took the
+                // speakers.  Pause and clear our focus bookkeeping so the
+                // next user-initiated play() re-requests focus instead of
+                // short-circuiting on a stale mediaFocusRequest reference
+                // (which would otherwise leave ExoPlayer playing into a
+                // muted output while the other source's audio is heard).
                 pausedByFocusLoss = false
                 if (player.isPlaying) player.pause()
+                mediaFocusRequest = null
             }
         }
     }
@@ -558,8 +564,17 @@ class MediaService : MediaBrowserServiceCompat() {
 
     private inner class SessionCompatCallback : MediaSessionCompat.Callback() {
         override fun onPlay() {
-            if (activeSource == BT_ROOT) btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PLAY)
-            else player.play()
+            if (activeSource == BT_ROOT) {
+                // BT focus was already taken when we activated as the source.
+                btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PLAY)
+            } else {
+                // Request audio focus first.  Until we hold focus the radio (or
+                // whatever else was playing) keeps the speakers — ExoPlayer
+                // would otherwise start playing into a muted output and the
+                // user hears the wrong source.  If focus is denied, leave the
+                // session state untouched (still PAUSED).
+                if (requestMediaFocus()) player.play()
+            }
         }
         override fun onPause() {
             if (activeSource == BT_ROOT) btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PAUSE)
@@ -614,7 +629,9 @@ class MediaService : MediaBrowserServiceCompat() {
                             }
                             player.setMediaItems(mediaItems, startIndex, 0L)
                             player.prepare()
-                            player.play()
+                            // Take focus before play() so we own the speakers
+                            // even if another source (radio, BT) had them.
+                            if (requestMediaFocus()) player.play()
                         }
                     }
                 } else {
@@ -624,7 +641,7 @@ class MediaService : MediaBrowserServiceCompat() {
                         session.setMetadata(buildMetadata(item))
                         player.setMediaItem(item)
                         player.prepare()
-                        player.play()
+                        if (requestMediaFocus()) player.play()
                     }
                 }
             }
