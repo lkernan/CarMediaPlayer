@@ -17,6 +17,7 @@ import androidx.fragment.app.Fragment
 import coil.load
 import com.saicmotor.media.R
 import com.saicmotor.media.databinding.FragmentNowPlayingBinding
+import com.saicmotor.media.service.MediaService
 
 class NowPlayingFragment : Fragment() {
 
@@ -31,6 +32,7 @@ class NowPlayingFragment : Fragment() {
         override fun onPlaybackStateChanged(state: PlaybackStateCompat?) = updateState(state)
         override fun onShuffleModeChanged(shuffleMode: Int)              = updateShuffleButton(shuffleMode)
         override fun onRepeatModeChanged(repeatMode: Int)                = updateRepeatButton(repeatMode)
+        override fun onExtrasChanged(extras: Bundle?)                    = updateSourceVisibility(extras)
     }
 
     private val seekUpdater = object : Runnable {
@@ -110,6 +112,7 @@ class NowPlayingFragment : Fragment() {
         updateState(c.playbackState)
         updateShuffleButton(c.shuffleMode)
         updateRepeatButton(c.repeatMode)
+        updateSourceVisibility(c.extras)
     }
 
     override fun onStart() {
@@ -175,6 +178,24 @@ class NowPlayingFragment : Fragment() {
         binding.btnShuffle.setColorFilter(
             resources.getColor(if (active) R.color.accent else R.color.text_hint, null)
         )
+    }
+
+    /**
+     * Reads the active source from the session extras (published by MediaService)
+     * and hides shuffle / repeat when we're forwarding to a phone over AVRCP —
+     * neither command is supported by the AVRCP 1.3 PassThrough vocabulary, so
+     * the buttons would just sit there doing nothing.  Seek/progress is hidden
+     * too because BT track positions aren't reported reliably enough to bother.
+     */
+    private fun updateSourceVisibility(extras: Bundle?) {
+        val source = extras?.getString(MediaService.EXTRA_ACTIVE_SOURCE)
+        val isBt   = source == MediaService.BT_ROOT
+        val vis    = if (isBt) View.GONE else View.VISIBLE
+        binding.btnShuffle.visibility = vis
+        binding.btnRepeat.visibility  = vis
+        binding.seekBar.visibility    = vis
+        binding.timePosition.visibility = vis
+        binding.timeDuration.visibility = vis
     }
 
     private fun updateRepeatButton(repeatMode: Int) {

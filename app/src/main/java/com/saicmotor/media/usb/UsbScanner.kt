@@ -9,6 +9,10 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 
 /**
  * Scans a USB drive's filesystem directly for audio files, bypassing
@@ -173,15 +177,18 @@ object UsbScanner {
         val mmr = MediaMetadataRetriever()
         mmr.setDataSource(file.absolutePath)
 
-        val title  = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
-                         ?.takeIf { it.isNotBlank() }
+        val title  = (mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                         ?.let(::fixMojibake)
+                         ?.takeIf { it.isNotBlank() })
                      ?: file.nameWithoutExtension
-        val artist = (mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+        val artist = ((mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                          ?: mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST))
-                         ?.takeIf { it.isNotBlank() }
+                         ?.let(::fixMojibake)
+                         ?.takeIf { it.isNotBlank() })
                      ?: "Unknown Artist"
-        val album  = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
-                         ?.takeIf { it.isNotBlank() }
+        val album  = (mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                         ?.let(::fixMojibake)
+                         ?.takeIf { it.isNotBlank() })
                      ?: "Unknown Album"
         val dur    = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                          ?.toLongOrNull() ?: 0L
@@ -201,6 +208,82 @@ object UsbScanner {
             artUri       = folderArt(file.parentFile)?.toString()
         )
     } catch (_: Exception) { null }
+
+    /**
+     * Repairs the very common case of an ID3v2 frame that declares encoding 0
+     * (ISO-8859-1) but actually contains UTF-8 bytes.  [MediaMetadataRetriever]
+     * trusts the declared encoding and decodes those bytes via Windows-1252
+     * (a Latin-1 superset that maps the C1 range 0x80–0x9F to printable
+     * characters like `€` and `™`).  A "right single quotation mark"
+     * ('’', UTF-8: E2 80 99) consequently comes out as the trigram `â€™`
+     * — and the user sees the `€` and `™` glyphs in track titles.
+     *
+     * We round-trip the string back to its raw CP1252 bytes (lossless because
+     * every CP1252 code point fits in one byte) and attempt a strict UTF-8
+     * decode.  If the bytes form valid UTF-8 we adopt the re-decoded string;
+     * if not, the original was legitimately CP1252 / Latin-1 and we leave it
+     * alone.  Strict-mode decoding rejects almost every legitimate Latin-1
+     * string because lone high bytes (e.g. 0xE9 for `é`) are not valid UTF-8
+     * lead bytes.
+     *
+     * After repair we also normalise curly typographic punctuation to ASCII
+     * equivalents.  The SAIC head unit's bundled font has no glyphs for
+     * U+2018/U+2019/U+201C/U+201D etc. and renders them as '?' boxes, so a
+     * track titled "Don't Stop Believin'" would otherwise show as "Don?t
+     * Stop Believin?".
+     */
+    private fun fixMojibake(s: String): String {
+        // Fast path: ASCII only — nothing to repair or normalise.
+        if (s.all { it.code < 0x80 }) return s
+
+        val repaired = try {
+            val bytes = s.toByteArray(CP1252)
+            val decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+            decoder.decode(ByteBuffer.wrap(bytes)).toString()
+        } catch (_: Throwable) {
+            s
+        }
+
+        return normaliseTypography(repaired)
+    }
+
+    private val CP1252: Charset = Charset.forName("windows-1252")
+
+    /**
+     * Replaces curly Unicode punctuation with ASCII equivalents.  Keeps glyphs
+     * the device's font actually has — losing the typographic curl is a fair
+     * trade for not seeing question-mark boxes in the title bar.
+     */
+    private fun normaliseTypography(s: String): String {
+        // Quick check — avoid allocating a StringBuilder for the common case.
+        if (s.none { it.isCurlyPunctuation() }) return s
+        val sb = StringBuilder(s.length)
+        for (c in s) {
+            when (c) {
+                '‘', '’', '‚', '‛' -> sb.append('\'')           // ‘ ’ ‚ ‛
+                '“', '”', '„', '‟' -> sb.append('"')            // “ ” „ ‟
+                '–', '—', '―'           -> sb.append('-')            // – — ―
+                '…'                                -> sb.append("...")         // …
+                '«', '»'                     -> sb.append('"')            // « »
+                '′'                                -> sb.append('\'')          // ′
+                '″'                                -> sb.append('"')           // ″
+                else                                    -> sb.append(c)
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun Char.isCurlyPunctuation(): Boolean = when (this) {
+        '‘', '’', '‚', '‛',
+        '“', '”', '„', '‟',
+        '–', '—', '―',
+        '…',
+        '«', '»',
+        '′', '″' -> true
+        else                -> false
+    }
 
     private fun folderArt(dir: File?): Uri? =
         dir?.let { d ->

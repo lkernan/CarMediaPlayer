@@ -88,6 +88,12 @@ class MediaService : MediaBrowserServiceCompat() {
         const val EXTRA_PARENT_ID   = "parent_id"
         const val EXTRA_SOURCE      = "source"
 
+        /** Key for the session-extras bundle telling clients which logical
+         *  source is currently active (one of [USB1_ROOT], [ONLINE_ROOT],
+         *  [BT_ROOT]).  Read by [NowPlayingFragment] to hide shuffle/repeat
+         *  buttons that are meaningless over AVRCP. */
+        const val EXTRA_ACTIVE_SOURCE = "com.saicmotor.media.ACTIVE_SOURCE"
+
         // SharedPreferences keys for persisted playback preferences
         private const val PREF_SHUFFLE     = "shuffle_enabled"
         private const val PREF_REPEAT_MODE = "repeat_mode"
@@ -324,6 +330,7 @@ class MediaService : MediaBrowserServiceCompat() {
             setPlaybackState(buildPlaybackState())
             isActive = true
         }
+        publishSourceExtra()
 
         // Restore persisted shuffle / repeat preferences from the previous session.
         // Must come after session is initialised — setting these on the player
@@ -414,6 +421,17 @@ class MediaService : MediaBrowserServiceCompat() {
                 // speakers from another app while we're idle.
             }
         }
+        publishSourceExtra()
+    }
+
+    /**
+     * Mirrors [activeSource] onto the MediaSession as the extra
+     * [EXTRA_ACTIVE_SOURCE].  The Now Playing fragment reads this to decide
+     * which controls to expose — shuffle/repeat are meaningless when we're
+     * forwarding to the phone over AVRCP, so they're hidden when src=BT_ROOT.
+     */
+    private fun publishSourceExtra() {
+        session.setExtras(Bundle().apply { putString(EXTRA_ACTIVE_SOURCE, activeSource) })
     }
 
     // ── Bluetooth listener ─────────────────────────────────────────────────
@@ -427,6 +445,7 @@ class MediaService : MediaBrowserServiceCompat() {
                 // No need to send PAUSE — the device is gone — but clean up focus.
                 abandonMediaFocus()
                 activeSource = USB1_ROOT
+                publishSourceExtra()
             }
         }
 
