@@ -44,8 +44,38 @@ class BrowseFragment : Fragment() {
 
     private val connectionCallback = object : MediaBrowserCompat.ConnectionCallback() {
         override fun onConnected() {
-            resetToSource(sourceRoot)
+            // If state was restored from savedInstanceState the stack is already
+            // populated — just re-subscribe to the deepest entry.  Otherwise
+            // initialise the stack from the current source root.
+            if (stack.isEmpty()) {
+                resetToSource(sourceRoot)
+            } else {
+                subscribeToCurrent()
+                updateSidebarState()
+            }
         }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        savedInstanceState?.let { state ->
+            state.getString(KEY_SOURCE_ROOT)?.let { sourceRoot = it }
+            activeCategoryId = state.getString(KEY_ACTIVE_CATEGORY)
+            val ids    = state.getStringArray(KEY_STACK_IDS)
+            val labels = state.getStringArray(KEY_STACK_LABELS)
+            if (ids != null && labels != null && ids.size == labels.size) {
+                stack.clear()
+                for (i in ids.indices) stack.addLast(ids[i] to labels[i])
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_SOURCE_ROOT, sourceRoot)
+        outState.putString(KEY_ACTIVE_CATEGORY, activeCategoryId)
+        outState.putStringArray(KEY_STACK_IDS,    stack.map { it.first  }.toTypedArray())
+        outState.putStringArray(KEY_STACK_LABELS, stack.map { it.second }.toTypedArray())
     }
 
     private val subscriptionCallback = object : MediaBrowserCompat.SubscriptionCallback() {
@@ -256,6 +286,13 @@ class BrowseFragment : Fragment() {
             }
             true
         }
+    }
+
+    companion object {
+        private const val KEY_SOURCE_ROOT     = "sourceRoot"
+        private const val KEY_ACTIVE_CATEGORY = "activeCategoryId"
+        private const val KEY_STACK_IDS       = "stackIds"
+        private const val KEY_STACK_LABELS    = "stackLabels"
     }
 
     private fun updateSidebarState() {

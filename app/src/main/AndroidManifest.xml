@@ -27,7 +27,7 @@
             android:name="com.saicmotor.media.ui.activity.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:configChanges="keyboard|layoutDirection|locale|uiMode">
+            android:configChanges="keyboard|layoutDirection|locale">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

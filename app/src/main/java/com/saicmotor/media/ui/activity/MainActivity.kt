@@ -5,10 +5,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaControllerCompat
@@ -37,16 +35,26 @@ class MainActivity : AppCompatActivity() {
 
     private val skinReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            val skinConfig = Settings.System.getInt(contentResolver, "SKIN_THEME_CONFIG", 1)
-            val newMode = MyApplication.nightModeFromSkinConfig(skinConfig)
-            if (AppCompatDelegate.getDefaultNightMode() != newMode) {
-                // Updating the global setting triggers AppCompat's applyDayNight().
-                // Because uiMode is declared in our manifest configChanges, the
-                // result is an onConfigurationChanged() callback rather than a
-                // destroy/recreate — so the MediaBrowser connection, current
-                // playback state, and back-stack all survive the theme flip.
-                AppCompatDelegate.setDefaultNightMode(newMode)
-            }
+            syncSkinTheme()
+        }
+    }
+
+    /**
+     * Reads SKIN_THEME_CONFIG and aligns AppCompat's default night mode with
+     * it.  If the value differs from the current default the activity will be
+     * recreated by AppCompat — fragment state (back stack, BrowseFragment's
+     * navigation stack, current source) is preserved via savedInstanceState.
+     *
+     * Called from three places to cover every path that can desync us from
+     * SKIN_THEME_CONFIG: before super.onCreate (catches a stale value cached
+     * by MyApplication when the process was kept alive across a skin change),
+     * onStart (catches broadcasts missed while the activity was stopped),
+     * and the skinReceiver (catches live changes while we're foregrounded).
+     */
+    private fun syncSkinTheme() {
+        val newMode = (application as MyApplication).currentNightMode()
+        if (AppCompatDelegate.getDefaultNightMode() != newMode) {
+            AppCompatDelegate.setDefaultNightMode(newMode)
         }
     }
 
@@ -90,6 +98,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Must run before super.onCreate so the activity's AppCompat delegate
+        // applies the correct night mode during its initial inflation.
+        syncSkinTheme()
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -113,6 +124,14 @@ class MainActivity : AppCompatActivity() {
                 .replace(R.id.content_container, BrowseFragment(), TAG_BROWSE)
                 .commit()
             highlightSource(MediaService.USB1_ROOT)
+        } else {
+            // After recreate (e.g. SKIN_THEME_CONFIG flip) restore the sidebar
+            // highlight and the fullscreen overlay visibility — the fragments
+            // themselves were restored by FragmentManager.
+            highlightSource(browseFragment()?.sourceRoot ?: MediaService.USB1_ROOT)
+            binding.fullscreenContainer.visibility =
+                if (supportFragmentManager.findFragmentByTag(TAG_NOW_PLAYING) != null)
+                    View.VISIBLE else View.GONE
         }
 
         // Hide the full-screen overlay as soon as Now Playing is popped from
@@ -133,6 +152,9 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(skinReceiver, IntentFilter("com.saicmotor.changeSkin"))
             skinReceiverRegistered = true
         }
+        // Catch any skin change that happened while we were stopped — the
+        // broadcast was dropped because the receiver was unregistered.
+        syncSkinTheme()
         mediaBrowser.connect()
     }
 
@@ -156,70 +178,6 @@ class MainActivity : AppCompatActivity() {
             // handled
         } else {
             super.onBackPressed()
-        }
-    }
-
-    /**
-     * Delivered by the system when uiMode (or any other declared configChanges
-     * value) changes while the activity is alive.  We declare uiMode in the
-     * manifest specifically to receive this in place of a destroy/recreate
-     * when SAIC's headlight skin broadcast flips between day and night.
-     *
-     * Re-inflating the layout is necessary because most colour references in
-     * the app are direct `@color/…` lookups; existing views don't re-resolve
-     * their colours when the configuration changes.  By detaching all
-     * fragments around the re-inflation we let FragmentManager rebuild their
-     * view trees against the new theme too — internal fragment state (scroll
-     * position, current category, etc.) survives because the fragments
-     * themselves stay in the manager.
-     */
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        applyThemeChange()
-    }
-
-    private fun applyThemeChange() {
-        val activeSource      = browseFragment()?.sourceRoot ?: MediaService.USB1_ROOT
-        val nowPlayingVisible = supportFragmentManager.findFragmentByTag(TAG_NOW_PLAYING) != null
-
-        // Detach every fragment so its view is torn down before we swap out
-        // the host layout.  Fragments stay in FragmentManager; only their
-        // views are destroyed.
-        val fragments = supportFragmentManager.fragments
-        if (fragments.isNotEmpty()) {
-            supportFragmentManager.beginTransaction().apply {
-                fragments.forEach { detach(it) }
-            }.commitNowAllowingStateLoss()
-        }
-
-        // Re-inflate the activity layout against the new theme.  The
-        // OnBackStackChangedListener registered in onCreate still works —
-        // it captures `binding` as a property reference, so it sees the
-        // freshly-assigned value here.
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
-
-        setupClickListeners()
-
-        // Re-attach the fragments — their views are rebuilt inside the
-        // new containers and pick up the new theme automatically.
-        if (fragments.isNotEmpty()) {
-            supportFragmentManager.beginTransaction().apply {
-                fragments.forEach { attach(it) }
-            }.commitNowAllowingStateLoss()
-        }
-
-        // Restore UI state that lives outside the fragments.
-        highlightSource(activeSource)
-        binding.fullscreenContainer.visibility =
-            if (nowPlayingVisible) View.VISIBLE else View.GONE
-
-        // Re-push the current playback state to the freshly-inflated mini player.
-        // The MediaController itself is still attached to the activity — no
-        // reconnection to the service is needed.
-        MediaControllerCompat.getMediaController(this)?.let { controller ->
-            controllerCallback.onMetadataChanged(controller.metadata)
-            controllerCallback.onPlaybackStateChanged(controller.playbackState)
         }
     }
 
