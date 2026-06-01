@@ -136,15 +136,16 @@ class NowPlayingFragment : Fragment() {
     private fun controller() = MediaControllerCompat.getMediaController(requireActivity())
 
     private fun updateMetadata(meta: MediaMetadataCompat?) {
-        binding.trackTitle.text  = meta?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)  ?: "—"
-        binding.trackArtist.text = meta?.getString(MediaMetadataCompat.METADATA_KEY_ARTIST) ?: "—"
-        binding.trackAlbum.text  = meta?.getString(MediaMetadataCompat.METADATA_KEY_ALBUM)  ?: ""
+        val b = _binding ?: return
+        b.trackTitle.text  = meta?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)  ?: "—"
+        b.trackArtist.text = meta?.getString(MediaMetadataCompat.METADATA_KEY_ARTIST) ?: "—"
+        b.trackAlbum.text  = meta?.getString(MediaMetadataCompat.METADATA_KEY_ALBUM)  ?: ""
 
         val artUriStr = meta?.getString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI)
         val artUri    = artUriStr?.let { Uri.parse(it) }
 
         // Foreground album art
-        binding.albumArt.load(artUri) {
+        b.albumArt.load(artUri) {
             placeholder(R.drawable.ic_album_art_placeholder)
             error(R.drawable.ic_album_art_placeholder)
             crossfade(true)
@@ -154,10 +155,11 @@ class NowPlayingFragment : Fragment() {
         // real Gaussian blur (RenderScript ScriptIntrinsicBlur, radius 25).
         // The ImageView's centerCrop upscale from ~300 px to full screen is
         // smooth because the blur has already removed all high-frequency detail.
+        val ctx = context ?: return
         val fallback = ColorDrawable(resources.getColor(R.color.bg_dark, null))
-        binding.bgArt.load(artUri) {
+        b.bgArt.load(artUri) {
             size(300, 300)
-            transformations(BlurTransformation(requireContext(), radius = 25f))
+            transformations(BlurTransformation(ctx, radius = 25f))
             crossfade(500)
             placeholder(fallback)
             fallback(fallback)
@@ -166,16 +168,18 @@ class NowPlayingFragment : Fragment() {
     }
 
     private fun updateState(state: PlaybackStateCompat?) {
+        val b = _binding ?: return
         val playing = state?.state == PlaybackStateCompat.STATE_PLAYING
-        binding.btnPlayPause.setImageResource(
+        b.btnPlayPause.setImageResource(
             if (playing) R.drawable.ic_pause else R.drawable.ic_play
         )
-        binding.btnPlayPause.setColorFilter(resources.getColor(R.color.on_accent, null))
+        b.btnPlayPause.setColorFilter(resources.getColor(R.color.on_accent, null))
     }
 
     private fun updateShuffleButton(shuffleMode: Int) {
+        val b = _binding ?: return
         val active = shuffleMode != PlaybackStateCompat.SHUFFLE_MODE_NONE
-        binding.btnShuffle.setColorFilter(
+        b.btnShuffle.setColorFilter(
             resources.getColor(if (active) R.color.accent else R.color.text_hint, null)
         )
     }
@@ -188,29 +192,31 @@ class NowPlayingFragment : Fragment() {
      * too because BT track positions aren't reported reliably enough to bother.
      */
     private fun updateSourceVisibility(extras: Bundle?) {
+        val b = _binding ?: return
         val source = extras?.getString(MediaService.EXTRA_ACTIVE_SOURCE)
         val isBt   = source == MediaService.BT_ROOT
         val vis    = if (isBt) View.GONE else View.VISIBLE
-        binding.btnShuffle.visibility = vis
-        binding.btnRepeat.visibility  = vis
-        binding.seekBar.visibility    = vis
-        binding.timePosition.visibility = vis
-        binding.timeDuration.visibility = vis
+        b.btnShuffle.visibility = vis
+        b.btnRepeat.visibility  = vis
+        b.seekBar.visibility    = vis
+        b.timePosition.visibility = vis
+        b.timeDuration.visibility = vis
     }
 
     private fun updateRepeatButton(repeatMode: Int) {
+        val b = _binding ?: return
         when (repeatMode) {
             PlaybackStateCompat.REPEAT_MODE_ONE -> {
-                binding.btnRepeat.setImageResource(R.drawable.ic_repeat_one)
-                binding.btnRepeat.setColorFilter(resources.getColor(R.color.accent, null))
+                b.btnRepeat.setImageResource(R.drawable.ic_repeat_one)
+                b.btnRepeat.setColorFilter(resources.getColor(R.color.accent, null))
             }
             PlaybackStateCompat.REPEAT_MODE_ALL -> {
-                binding.btnRepeat.setImageResource(R.drawable.ic_repeat)
-                binding.btnRepeat.setColorFilter(resources.getColor(R.color.accent, null))
+                b.btnRepeat.setImageResource(R.drawable.ic_repeat)
+                b.btnRepeat.setColorFilter(resources.getColor(R.color.accent, null))
             }
             else -> {
-                binding.btnRepeat.setImageResource(R.drawable.ic_repeat)
-                binding.btnRepeat.setColorFilter(resources.getColor(R.color.text_hint, null))
+                b.btnRepeat.setImageResource(R.drawable.ic_repeat)
+                b.btnRepeat.setColorFilter(resources.getColor(R.color.text_hint, null))
             }
         }
     }

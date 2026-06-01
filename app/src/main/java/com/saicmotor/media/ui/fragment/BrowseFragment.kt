@@ -83,6 +83,7 @@ class BrowseFragment : Fragment() {
             parentId: String,
             children: MutableList<MediaBrowserCompat.MediaItem>
         ) {
+            _binding?.loadingSpinner?.visibility = View.GONE
             val list = children.toList()
             adapter.submitList(list)
             val empty = list.isEmpty()
@@ -230,7 +231,11 @@ class BrowseFragment : Fragment() {
     }
 
     private fun subscribeToCurrent() {
-        currentParentId()?.let { mediaBrowser.subscribe(it, subscriptionCallback) }
+        currentParentId()?.let {
+            _binding?.loadingSpinner?.visibility = View.VISIBLE
+            _binding?.emptyState?.visibility     = View.GONE
+            mediaBrowser.subscribe(it, subscriptionCallback)
+        }
     }
 
     private fun currentParentId() = stack.lastOrNull()?.first

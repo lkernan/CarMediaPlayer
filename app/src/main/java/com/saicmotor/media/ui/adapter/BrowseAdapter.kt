@@ -51,7 +51,10 @@ class BrowseAdapter(
             override fun areItemsTheSame(a: MediaBrowserCompat.MediaItem, b: MediaBrowserCompat.MediaItem) =
                 a.mediaId == b.mediaId
             override fun areContentsTheSame(a: MediaBrowserCompat.MediaItem, b: MediaBrowserCompat.MediaItem) =
-                a.mediaId == b.mediaId && a.description.title == b.description.title
+                a.mediaId == b.mediaId
+                && a.description.title    == b.description.title
+                && a.description.subtitle == b.description.subtitle
+                && a.description.iconUri  == b.description.iconUri
         }
     }
 }

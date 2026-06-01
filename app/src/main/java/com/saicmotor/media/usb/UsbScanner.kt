@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.ByteBuffer
@@ -76,6 +78,7 @@ object UsbScanner {
 
     @Volatile private var cachedRootPath: String?     = null
     @Volatile private var cachedTracks:   List<Track> = emptyList()
+    private  val scanMutex = Mutex()
 
     private lateinit var db: TrackCacheDatabase
 
@@ -101,10 +104,19 @@ object UsbScanner {
         // In-memory fast path — repeated calls within the same session
         if (cachedRootPath == rootPath) return cachedTracks
 
-        val tracks = doScan(rootPath)
-        cachedTracks   = tracks
-        cachedRootPath = rootPath
-        return tracks
+        // Serialise scans so two concurrent browse operations (e.g. rapid
+        // taps on Artists then Albums) don't duplicate the full filesystem
+        // walk + DB diff.  The second caller waits on the lock and then
+        // hits the in-memory cache.
+        return scanMutex.withLock {
+            // Double-check after acquiring the lock — another coroutine
+            // may have completed the scan while we were waiting.
+            if (cachedRootPath == rootPath) return@withLock cachedTracks
+            val tracks = doScan(rootPath)
+            cachedTracks   = tracks
+            cachedRootPath = rootPath
+            tracks
+        }
     }
 
     /**

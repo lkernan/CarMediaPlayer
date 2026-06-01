@@ -158,6 +158,13 @@ class MediaService : MediaBrowserServiceCompat() {
      *  resume on AUDIOFOCUS_GAIN. */
     private var pausedByFocusLoss = false
 
+    /** Mirrors the Bluetooth phone's playback state as reported by AVRCP.
+     *  Used so transport controls, widgets, and notifications reflect the
+     *  phone's state rather than ExoPlayer's stale local state. */
+    private var btIsPlaying = false
+    private var btTitle:  String = ""
+    private var btArtist: String = ""
+
     private val mediaFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (activeSource) {
             BT_ROOT -> handleBtFocusChange(change)
@@ -360,9 +367,23 @@ class MediaService : MediaBrowserServiceCompat() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PLAY_PAUSE -> if (player.isPlaying) player.pause() else player.play()
-            ACTION_PREVIOUS   -> player.seekToPreviousMediaItem()
-            ACTION_NEXT       -> player.seekToNextMediaItem()
+            ACTION_PLAY_PAUSE -> {
+                if (activeSource == BT_ROOT) {
+                    if (btIsPlaying) btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PAUSE)
+                    else             btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PLAY)
+                } else {
+                    if (player.isPlaying) player.pause()
+                    else if (requestMediaFocus()) player.play()
+                }
+            }
+            ACTION_PREVIOUS -> {
+                if (activeSource == BT_ROOT) btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PREVIOUS)
+                else player.seekToPreviousMediaItem()
+            }
+            ACTION_NEXT -> {
+                if (activeSource == BT_ROOT) btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_NEXT)
+                else player.seekToNextMediaItem()
+            }
             ACTION_SCAN_USB   -> {
                 UsbScanner.invalidate()
                 serviceScope.launch {
@@ -403,6 +424,9 @@ class MediaService : MediaBrowserServiceCompat() {
         // source we're switching to.
         if (prev == BT_ROOT) {
             btManager.sendPassThrough(BluetoothMediaManager.PASSTHRU_PAUSE)
+            btIsPlaying = false
+            btTitle     = ""
+            btArtist    = ""
         }
         abandonMediaFocus()
 
@@ -419,9 +443,15 @@ class MediaService : MediaBrowserServiceCompat() {
                 // USB / Online: focus will be requested lazily when playback
                 // actually starts (onIsPlayingChanged), so we don't grab the
                 // speakers from another app while we're idle.
+                // Push ExoPlayer's current metadata so the UI doesn't show
+                // stale BT track info from the previous source.
+                session.setMetadata(buildMetadata())
+                session.setPlaybackState(buildPlaybackState())
             }
         }
         publishSourceExtra()
+        refreshNotification()
+        pushWidgets()
     }
 
     /**
@@ -453,27 +483,23 @@ class MediaService : MediaBrowserServiceCompat() {
             title: String, artist: String, album: String, artUri: String?
         ) {
             if (activeSource == BT_ROOT) {
+                btTitle  = title
+                btArtist = artist
                 session.setMetadata(buildBtMetadata(title, artist, album, artUri))
                 refreshNotification()
                 WidgetUpdater.pushAll(
                     this@MediaService, title = title, artist = artist,
-                    isPlaying = player.isPlaying
+                    isPlaying = btIsPlaying
                 )
             }
         }
 
         override fun onBtPlaybackChanged(isPlaying: Boolean) {
             if (activeSource == BT_ROOT) {
-                // Mirror the phone's playback state so our session stays in sync
-                val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING
-                            else           PlaybackStateCompat.STATE_PAUSED
-                session.setPlaybackState(
-                    PlaybackStateCompat.Builder()
-                        .setState(state, 0L, 1.0f)
-                        .setActions(SESSION_ACTIONS)
-                        .build()
-                )
+                btIsPlaying = isPlaying
+                session.setPlaybackState(buildPlaybackState())
                 refreshNotification()
+                pushWidgets()
             }
         }
     }
@@ -482,19 +508,21 @@ class MediaService : MediaBrowserServiceCompat() {
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            // Acquire audio focus on first play after idle for USB / Online —
-            // BT manages its own focus from activateSource().  Held until the
-            // source is switched away from us or the service is destroyed.
-            if (isPlaying && activeSource != BT_ROOT) requestMediaFocus()
+            // When BT is active ExoPlayer is idle — ignore its state changes
+            // so they don't overwrite the BT session state.
+            if (activeSource == BT_ROOT) return
+            if (isPlaying) requestMediaFocus()
             session.setPlaybackState(buildPlaybackState())
             refreshNotification()
             pushWidgets()
         }
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (activeSource == BT_ROOT) return
             session.setPlaybackState(buildPlaybackState())
             refreshNotification()
         }
         override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
+            if (activeSource == BT_ROOT) return
             // Use the item passed directly to avoid a race where player.mediaMetadata
             // may not have settled yet when this callback fires.
             session.setMetadata(buildMetadata(item))
@@ -503,6 +531,7 @@ class MediaService : MediaBrowserServiceCompat() {
             pushWidgets()
         }
         override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+            if (activeSource == BT_ROOT) return
             // ExoPlayer read ID3/MP4 tags from the stream — update with the definitive values
             session.setMetadata(buildMetadata())
             refreshNotification()
@@ -526,15 +555,26 @@ class MediaService : MediaBrowserServiceCompat() {
     // ── Session helpers ─────────────────────────────────────────────────────
 
     private fun buildPlaybackState(): PlaybackStateCompat {
-        val state = when {
-            player.playbackState == Player.STATE_BUFFERING -> PlaybackStateCompat.STATE_BUFFERING
-            player.isPlaying                               -> PlaybackStateCompat.STATE_PLAYING
-            player.playbackState == Player.STATE_READY     -> PlaybackStateCompat.STATE_PAUSED
-            player.playbackState == Player.STATE_ENDED     -> PlaybackStateCompat.STATE_STOPPED
-            else                                           -> PlaybackStateCompat.STATE_NONE
+        val state: Int
+        val position: Long
+        if (activeSource == BT_ROOT) {
+            // BT playback state comes from the phone via AVRCP — ExoPlayer's
+            // state is stale and must not be used.
+            state    = if (btIsPlaying) PlaybackStateCompat.STATE_PLAYING
+                       else             PlaybackStateCompat.STATE_PAUSED
+            position = 0L
+        } else {
+            state = when {
+                player.playbackState == Player.STATE_BUFFERING -> PlaybackStateCompat.STATE_BUFFERING
+                player.isPlaying                               -> PlaybackStateCompat.STATE_PLAYING
+                player.playbackState == Player.STATE_READY     -> PlaybackStateCompat.STATE_PAUSED
+                player.playbackState == Player.STATE_ENDED     -> PlaybackStateCompat.STATE_STOPPED
+                else                                           -> PlaybackStateCompat.STATE_NONE
+            }
+            position = player.currentPosition
         }
         return PlaybackStateCompat.Builder()
-            .setState(state, player.currentPosition, 1.0f)
+            .setState(state, position, 1.0f)
             .setActions(SESSION_ACTIONS)
             .build()
     }
@@ -544,13 +584,22 @@ class MediaService : MediaBrowserServiceCompat() {
      * [player.mediaMetadata].  Passing [sourceItem] directly is preferred in callbacks
      * (e.g. [onMediaItemTransition]) to avoid a race where the player's combined
      * metadata property has not yet reflected the new item.
+     *
+     * [durationMs] can be supplied for the initial eager push (before the player
+     * has buffered the new item) so the UI shows the correct duration immediately
+     * rather than briefly flashing "0:00".
      */
-    private fun buildMetadata(sourceItem: MediaItem? = null): MediaMetadataCompat {
+    private fun buildMetadata(
+        sourceItem: MediaItem? = null,
+        durationMs: Long? = null
+    ): MediaMetadataCompat {
         val meta     = sourceItem?.mediaMetadata ?: player.mediaMetadata
         val title    = meta.title?.toString()      ?: ""
         val artist   = meta.artist?.toString()     ?: ""
         val album    = meta.albumTitle?.toString() ?: ""
-        val duration = player.duration.takeIf { it != C.TIME_UNSET } ?: -1L
+        val duration = durationMs
+                       ?: player.duration.takeIf { it != C.TIME_UNSET }
+                       ?: -1L
         val artUri   = meta.artworkUri?.toString() ?: ""
         return buildMetadataCompat(title, artist, album, duration, artUri)
     }
@@ -643,8 +692,12 @@ class MediaService : MediaBrowserServiceCompat() {
                         withContext(Dispatchers.Main) {
                             // Eagerly push metadata so the launcher sees the right track
                             // title immediately, before ExoPlayer fires async callbacks.
+                            // Include the duration from the browse extras so the seek bar
+                            // doesn't briefly flash "0:00" before ExoPlayer buffers.
+                            val dur = extras?.getLong("duration", -1L)
+                                ?.takeIf { it > 0 }
                             mediaItems.getOrNull(startIndex)?.let {
-                                session.setMetadata(buildMetadata(it))
+                                session.setMetadata(buildMetadata(it, durationMs = dur))
                             }
                             player.setMediaItems(mediaItems, startIndex, 0L)
                             player.prepare()
@@ -733,9 +786,10 @@ class MediaService : MediaBrowserServiceCompat() {
                 buildPlayableMediaItem(id, item.description)
             }
             if (mediaItems.isNotEmpty()) {
+                session.setMetadata(buildMetadata(mediaItems.first()))
                 player.setMediaItems(mediaItems)
                 player.prepare()
-                player.play()
+                if (requestMediaFocus()) player.play()
             }
             result.sendResult(null)
         }
@@ -999,13 +1053,20 @@ class MediaService : MediaBrowserServiceCompat() {
     // ── Notification ───────────────────────────────────────────────────────
 
     private fun pushWidgets() {
-        val meta = player.mediaMetadata
-        WidgetUpdater.pushAll(
-            this,
-            title     = meta.title?.toString() ?: "",
-            artist    = meta.artist?.toString() ?: "",
+        val title: String
+        val artist: String
+        val isPlaying: Boolean
+        if (activeSource == BT_ROOT) {
+            title     = btTitle
+            artist    = btArtist
+            isPlaying = btIsPlaying
+        } else {
+            val meta  = player.mediaMetadata
+            title     = meta.title?.toString() ?: ""
+            artist    = meta.artist?.toString() ?: ""
             isPlaying = player.isPlaying
-        )
+        }
+        WidgetUpdater.pushAll(this, title = title, artist = artist, isPlaying = isPlaying)
     }
 
     private fun refreshNotification() {
@@ -1014,12 +1075,23 @@ class MediaService : MediaBrowserServiceCompat() {
     }
 
     private fun buildNotification(): Notification {
-        val meta      = player.mediaMetadata
-        val isPlaying = player.isPlaying
+        val title: String
+        val artist: String
+        val isPlaying: Boolean
+        if (activeSource == BT_ROOT) {
+            title     = btTitle.ifEmpty { getString(R.string.app_name) }
+            artist    = btArtist
+            isPlaying = btIsPlaying
+        } else {
+            val meta  = player.mediaMetadata
+            title     = meta.title?.toString() ?: getString(R.string.app_name)
+            artist    = meta.artist?.toString() ?: ""
+            isPlaying = player.isPlaying
+        }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(meta.title?.toString() ?: getString(R.string.app_name))
-            .setContentText(meta.artist?.toString() ?: "")
+            .setContentTitle(title)
+            .setContentText(artist)
             .setContentIntent(pendingMainActivity())
             .setOngoing(isPlaying)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

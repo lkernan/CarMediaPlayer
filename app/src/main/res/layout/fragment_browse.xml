@@ -162,6 +162,16 @@
                 android:textSize="@dimen/text_md"
                 android:visibility="gone"/>
 
+            <!-- Loading spinner — shown while waiting for browse results -->
+            <ProgressBar
+                android:id="@+id/loading_spinner"
+                style="@style/Widget.AppCompat.ProgressBar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:indeterminateTint="@color/accent"
+                android:visibility="gone"/>
+
             <!-- Alphabet fast-scroll strip — overlaid on the right edge -->
             <LinearLayout
                 android:id="@+id/alphabet_strip"

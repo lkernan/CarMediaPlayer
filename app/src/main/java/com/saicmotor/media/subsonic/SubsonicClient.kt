@@ -47,6 +47,7 @@ object SubsonicClient {
     @Volatile private var cachedConfig:     SubsonicSettings.Config? = null
     @Volatile private var cachedAuthParams: String                   = ""
 
+    @Synchronized
     fun authParams(cfg: SubsonicSettings.Config): String {
         if (cfg == cachedConfig) return cachedAuthParams
         val salt  = UUID.randomUUID().toString().replace("-", "").take(8)
