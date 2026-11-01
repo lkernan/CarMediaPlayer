@@ -50,7 +50,7 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 `tools/buildcheck` builds the app's sources with the same dependencies as
 `app/build.gradle` and runs the Robolectric tests in `tools/buildcheck/tests`
-(27 service tests, 20 screenshot tests → `tools/buildcheck/app/build/shots`).
+(28 service tests, 20 screenshot tests → `tools/buildcheck/app/build/shots`).
 Needs JDK 17, Gradle 8.x, Android SDK platform 34 + build-tools 34
 (`local.properties` with `sdk.dir=...`).
 
@@ -93,6 +93,10 @@ Robolectric fails with FileSystemAlreadyExistsException when run together.
   301 centre = play/pause, 297/298 volume.  The launcher's SwcManager calls
   `play()` on any volume press if the session isn't PLAYING, so the app
   ignores a "play" that arrives just after a volume change (`isVolumeChangePlay`).
+  So a launcher "play" while paused waits 250 ms before acting; a pause that
+  comes after it drops it (`pauseCommands`), so quick presses end on the last
+  one.  For ~1 s after a pause the music's own sound is still fading out, so
+  it doesn't count as another app playing (`OWN_SOUND_FADE_MS`).
   Holding left/right: the launcher sends fastForward/rewind then
   `__STOP_FAST_FORWARD__`.
 - **STAR key (17)**: its release is never reported (the system intercepts
@@ -121,6 +125,10 @@ Robolectric fails with FileSystemAlreadyExistsException when run together.
   as paused, so buffering while playWhenReady is reported as PLAYING at speed 0.
 - Other apps (YouTube) keep priority: external "play" is blocked while
   another session is playing.
+- **Radio** (the mode key): the radio takes audio focus, so the music pauses
+  where it was; the launcher's "switch source" (32769) brings it back.  The
+  look-ahead downloader finishes the song it's on but starts no new one until
+  the music plays again.
 - **Updating itself**: as a platform-signed system-UID app it holds
   INSTALL_PACKAGES, so `Updater` installs through a PackageInstaller session
   with no prompt (if the installer asks for confirmation anyway, its screen

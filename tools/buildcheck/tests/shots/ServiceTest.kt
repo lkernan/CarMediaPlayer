@@ -552,6 +552,38 @@ class ServiceTest {
         assertEquals(listOf("down", "up"), steps.toList())
     }
 
+    private fun sessionCallback(s: MediaService) =
+        Class.forName("com.saicmotor.media.service.MediaService\$SessionCallback")
+            .getDeclaredConstructor(MediaService::class.java).apply { isAccessible = true }
+            .newInstance(s) as android.support.v4.media.session.MediaSessionCompat.Callback
+
+    /** Quick presses of the centre key: the launcher's "play" (which waits a moment) doesn't undo a pause after it. */
+    @Test
+    fun quickPlayThenPauseStaysPaused() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        s.call("userPause")
+        idle(1_500)
+        val launcher = sessionCallback(s)
+        s.callerForTest = "com.saicmotor.launcher"
+
+        launcher.onPlay(); idle(100); launcher.onPause(); idle(500)
+        assertFalse("the later pause wins", s.player().playWhenReady)
+        launcher.onPlay(); idle(400)
+        assertTrue("a play on its own plays", s.player().playWhenReady)
+
+        // Just paused, so the sound still going is the music's own, fading out:
+        // not another app playing.
+        shadowOf(app.getSystemService(android.media.AudioManager::class.java)).setIsMusicActive(true)
+        launcher.onPause(); idle(100); launcher.onPlay(); idle(400)
+        assertTrue("plays again", s.player().playWhenReady)
+        // Long after the pause, sound is another app's: it keeps the music quiet.
+        launcher.onPause(); idle(1_500); launcher.onPlay(); idle(400)
+        assertFalse(s.player().playWhenReady)
+        s.callerForTest = null
+    }
+
     /** Navidrome too busy for a cover ("429"): asked again a moment later, then given up on. */
     @Test
     fun busyCoverRequestsAreAskedAgain() {

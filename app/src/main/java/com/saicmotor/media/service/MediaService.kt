@@ -253,6 +253,8 @@ class MediaService : MediaBrowserServiceCompat() {
         private const val IGNORED_KEY_WAIT_MS = 500L
         /** …and on a volume key (it changes the volume within a few milliseconds when it does). */
         private const val IGNORED_VOLUME_KEY_WAIT_MS = 300L
+        /** After a pause, how long the music's own sound can still be heard (so it isn't "another app"). */
+        private const val OWN_SOUND_FADE_MS = 1_000L
         /** Start-up timing: the first song was partly downloaded (size unknown). */
         private const val PARTLY = -2
         /** A launcher "play" this soon after the centre key was let go came from it. */
@@ -481,6 +483,15 @@ class MediaService : MediaBrowserServiceCompat() {
 
     /** When the music last got a play / pause / skip, from anyone (see [coverIgnoredKey]). */
     private var lastTransportCommandAt = -1L
+
+    /** Pauses / stops so far: a launcher "play" still waiting (see SessionCallback.onPlay) is dropped by a later one. */
+    private var pauseCommands = 0
+
+    /** When the driver last paused the music: its sound takes a moment to stop. */
+    private var lastUserPauseAt = -1L
+
+    @VisibleForTesting
+    internal var callerForTest: String? = null
 
     /** When the wheel's centre key was last let go. */
     private var lastCentreKeyAt = -1L
@@ -1182,6 +1193,7 @@ class MediaService : MediaBrowserServiceCompat() {
 
     private fun userPause() {
         pausedByFocusLoss = false
+        lastUserPauseAt = SystemClock.elapsedRealtime()
         player.pause()
     }
 
@@ -1280,8 +1292,11 @@ class MediaService : MediaBrowserServiceCompat() {
                else keyRouter.playingElsewhere()
     }
 
-    private fun otherAudioActive(): Boolean =
-        getSystemService(AudioManager::class.java).isMusicActive && !player.isPlaying
+    private fun otherAudioActive(): Boolean {
+        // Just paused: the sound still playing is ours, fading out.
+        if (lastUserPauseAt >= 0 && SystemClock.elapsedRealtime() - lastUserPauseAt < OWN_SOUND_FADE_MS) return false
+        return getSystemService(AudioManager::class.java).isMusicActive && !player.isPlaying
+    }
 
     /**
      * Handles a media key from the steering wheel (or any other hardware
@@ -1382,7 +1397,8 @@ class MediaService : MediaBrowserServiceCompat() {
     // ── MediaSessionCompat.Callback ────────────────────────────────────────
 
     private inner class SessionCallback : MediaSessionCompat.Callback() {
-        fun caller(): String = try { session.currentControllerInfo.packageName } catch (_: Exception) { "?" }
+        fun caller(): String =
+            callerForTest ?: try { session.currentControllerInfo.packageName } catch (_: Exception) { "?" }
 
         private fun logCommand(name: String) {
             lastTransportCommandAt = SystemClock.elapsedRealtime()
@@ -1416,14 +1432,17 @@ class MediaService : MediaBrowserServiceCompat() {
             // change.  Give the key or volume change a moment to show up, then:
             // centre key while watching another app → play / pause that app;
             // volume change → stay paused; otherwise play, unless another app is.
+            val pausesBefore = pauseCommands
             serviceScope.launch {
                 delay(VOLUME_PLAY_WAIT_MS)
                 val other = if (centreKeyJustPressed()) wheelTarget() else null
                 when {
-                    other != null             -> toggleOther(other)
-                    isVolumeChangePlay()      -> Log.i(TAG, "  → ignored: that was the volume being changed")
-                    externalPlayBlocked(from) -> Unit
-                    else                      -> playPressed()
+                    // Paused since (quick presses): the later press wins.
+                    pauseCommands != pausesBefore -> Log.i(TAG, "  → dropped: paused since")
+                    other != null                 -> toggleOther(other)
+                    isVolumeChangePlay()          -> Log.i(TAG, "  → ignored: that was the volume being changed")
+                    externalPlayBlocked(from)     -> Unit
+                    else                          -> playPressed()
                 }
             }
         }
@@ -1436,6 +1455,7 @@ class MediaService : MediaBrowserServiceCompat() {
             lastTransportCommandAt = SystemClock.elapsedRealtime()
             val from = caller()
             Log.i(TAG, "pause from $from")
+            pauseCommands++
             cancelStartupAction()
             stopFastSeek()
             userPause()
@@ -1443,6 +1463,7 @@ class MediaService : MediaBrowserServiceCompat() {
         override fun onStop() {
             val from = caller()
             Log.i(TAG, "stop from $from")
+            pauseCommands++
             cancelStartupAction()
             stopFastSeek()
             player.stop()
