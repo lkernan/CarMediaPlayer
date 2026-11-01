@@ -1,31 +1,84 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- A song: number or cover, title and artist, length. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:paddingHorizontal="@dimen/spacing_md"
-    android:paddingVertical="@dimen/spacing_sm"
-    android:background="?attr/selectableItemBackground"
-    android:minHeight="@dimen/track_item_min_height">
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp">
 
-    <TextView
-        android:id="@+id/track_title"
+    <LinearLayout
+        android:id="@+id/row"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:textColor="@color/text_primary"
-        android:textSize="@dimen/text_md"/>
+        android:layout_height="@dimen/row_height"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="20dp"
+        android:background="@drawable/row_background">
 
-    <TextView
-        android:id="@+id/track_artist"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/spacing_xs"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:textColor="@color/text_secondary"
-        android:textSize="@dimen/text_sm"/>
+        <FrameLayout
+            android:layout_width="64dp"
+            android:layout_height="@dimen/row_thumb">
 
-</LinearLayout>
+            <TextView
+                android:id="@+id/number"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:textAppearance="@style/Text.Secondary"
+                android:textColor="@color/ink_3"/>
+
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/thumb"
+                android:layout_width="@dimen/row_thumb"
+                android:layout_height="@dimen/row_thumb"
+                android:layout_gravity="center"
+                android:scaleType="centerCrop"
+                android:contentDescription="@null"
+                app:shapeAppearanceOverlay="@style/ShapeAppearance.Cover"/>
+
+            <ImageView
+                android:id="@+id/playing"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_playing"
+                android:contentDescription="@null"
+                android:visibility="gone"
+                app:tint="@color/accent_ink"/>
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="20dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:textAppearance="@style/Text.Body"/>
+
+            <TextView
+                android:id="@+id/subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:textAppearance="@style/Text.Secondary"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="20dp"
+            android:textAppearance="@style/Text.Secondary"
+            android:textColor="@color/ink_3"/>
+    </LinearLayout>
+</FrameLayout>

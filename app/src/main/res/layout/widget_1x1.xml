@@ -1,21 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/widget_bg"
-    android:padding="8dp">
+    android:background="@drawable/widget_background"
+    android:padding="20dp">
 
     <TextView
         android:id="@+id/widget_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:gravity="center"
-        android:maxLines="2"
+        android:layout_gravity="bottom"
+        android:maxLines="3"
         android:ellipsize="end"
-        android:textColor="@color/text_primary"
-        android:textSize="@dimen/widget_text_size"/>
-
+        android:fontFamily="sans-serif-medium"
+        android:textColor="@color/ink"
+        android:textSize="22sp"/>
 </FrameLayout>

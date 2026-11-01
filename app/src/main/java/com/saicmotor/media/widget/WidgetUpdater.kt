@@ -5,6 +5,8 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.UserManager
+import android.util.Log
 import android.widget.RemoteViews
 import com.saicmotor.media.R
 import com.saicmotor.media.ui.activity.MainActivity
@@ -16,11 +18,19 @@ import com.saicmotor.media.ui.activity.MainActivity
 object WidgetUpdater {
 
     fun pushAll(context: Context, title: String, artist: String, isPlaying: Boolean) {
-        val manager = AppWidgetManager.getInstance(context)
-
-        update1x1(context, manager, title)
-        update2x1(context, manager, title, artist, isPlaying)
-        update2x2(context, manager, title, artist, isPlaying)
+        // Widgets aren't available until the user storage unlocks (~25 s
+        // after boot; the player starts before that), and Android throws
+        // rather than ignoring the update.  They're cosmetic: never let them
+        // take the player down.
+        if (context.getSystemService(UserManager::class.java)?.isUserUnlocked == false) return
+        try {
+            val manager = AppWidgetManager.getInstance(context)
+            update1x1(context, manager, title)
+            update2x1(context, manager, title, artist, isPlaying)
+            update2x2(context, manager, title, artist, isPlaying)
+        } catch (e: Exception) {
+            Log.w("CarMedia", "Couldn't update widgets: ${e.javaClass.simpleName}")
+        }
     }
 
     private fun update1x1(context: Context, manager: AppWidgetManager, title: String) {
@@ -69,8 +79,6 @@ object WidgetUpdater {
         views.setOnClickPendingIntent(R.id.btn_previous,    pendingWidget(context, "com.saicmotor.media.widget.previous"))
         views.setOnClickPendingIntent(R.id.btn_play_pause,  pendingWidget(context, "com.saicmotor.media.widget.play_pause"))
         views.setOnClickPendingIntent(R.id.btn_next,        pendingWidget(context, "com.saicmotor.media.widget.next"))
-        views.setOnClickPendingIntent(R.id.btn_source_prev, pendingWidget(context, "com.saicmotor.media.widget.source_prev"))
-        views.setOnClickPendingIntent(R.id.btn_source_next, pendingWidget(context, "com.saicmotor.media.widget.source_next"))
 
         manager.updateAppWidget(
             ComponentName(context, MediaWidgetProvider_2x2::class.java), views

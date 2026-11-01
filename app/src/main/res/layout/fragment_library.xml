@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:overScrollMode="never">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="34dp"
+            android:paddingEnd="@dimen/gutter"
+            android:paddingTop="@dimen/space_xs"
+            android:paddingBottom="@dimen/space_m">
+
+            <TextView android:id="@+id/seg_albums"    style="@style/Segment" android:text="@string/segment_albums"/>
+            <TextView android:id="@+id/seg_artists"   style="@style/Segment" android:text="@string/segment_artists"/>
+            <TextView android:id="@+id/seg_genres"    style="@style/Segment" android:text="@string/segment_genres"/>
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingStart="36dp"
+            android:paddingEnd="36dp"
+            android:paddingBottom="@dimen/space_l"
+            android:clipToPadding="false"
+            android:scrollbars="none"
+            app:fastScrollEnabled="true"
+            app:fastScrollVerticalThumbDrawable="@drawable/fast_scroll_thumb"
+            app:fastScrollVerticalTrackDrawable="@drawable/fast_scroll_track"
+            app:fastScrollHorizontalThumbDrawable="@drawable/fast_scroll_thumb"
+            app:fastScrollHorizontalTrackDrawable="@drawable/fast_scroll_track"/>
+
+        <com.saicmotor.media.ui.common.LoadStateView
+            android:id="@+id/state"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"/>
+    </FrameLayout>
+</LinearLayout>

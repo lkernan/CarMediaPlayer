@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cover for a song without artwork: sized as a full panel so it isn't scaled up. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/panel_placeholder"/>
+            <size android:width="720dp" android:height="720dp"/>
+        </shape>
+    </item>
+    <item android:gravity="center" android:width="120dp" android:height="120dp"
+        android:bottom="300dp" android:drawable="@drawable/ic_note_panel"/>
+</layer-list>

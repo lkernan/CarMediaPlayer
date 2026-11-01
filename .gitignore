@@ -14,3 +14,5 @@ app/keys/
 # Project exclude paths
 /app/build/
 /app/build/intermediates/javac/debug/classes/
+# Signed APKs (tools/sign.sh, release workflow)
+/dist/

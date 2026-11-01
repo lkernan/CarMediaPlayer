@@ -1,57 +1,189 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="android:windowBackground">@color/bg_dark</item>
-        <item name="android:colorBackground">@color/bg_dark</item>
+
+    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:colorBackground">@color/bg</item>
         <!-- Suppress the activity transition animation so theme recreation is instant -->
         <item name="android:windowAnimationStyle">@null</item>
         <item name="colorPrimary">@color/accent</item>
-        <item name="colorAccent">@color/accent</item>
-        <item name="android:textColorPrimary">@color/text_primary</item>
-        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="colorPrimaryVariant">@color/accent</item>
+        <item name="colorOnPrimary">@color/on_accent</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="colorOnSecondary">@color/on_accent</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/ink</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:textColorSecondary">@color/ink_2</item>
+        <item name="android:textColorHint">@color/ink_3</item>
         <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowTranslucentNavigation">false</item>
+        <item name="android:fontFamily">@font/barlow_regular</item>
+        <item name="fontFamily">@font/barlow_regular</item>
     </style>
 
-    <!-- Source tab buttons in the left nav sidebar -->
-    <style name="SourceTabButton" parent="Widget.AppCompat.Button.Borderless">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:minHeight">@dimen/top_bar_height</item>
+    <!-- ── Type ─────────────────────────────────────────────────────────
+         Barlow (from road-sign lettering) for everything; its semi-condensed
+         cut for titles so long album names fit. -->
+
+    <!-- Song title on the now-playing panel -->
+    <style name="Text.Display" parent="">
+        <item name="android:fontFamily">@font/barlow_sc_semibold</item>
+        <item name="android:textSize">42sp</item>
+        <item name="android:lineSpacingMultiplier">0.95</item>
+        <item name="android:textColor">@color/panel_ink</item>
+    </style>
+
+    <!-- Page title (album, artist, playlist, genre) -->
+    <style name="Text.Title" parent="">
+        <item name="android:fontFamily">@font/barlow_sc_semibold</item>
+        <item name="android:textSize">40sp</item>
+        <item name="android:lineSpacingMultiplier">0.95</item>
+        <item name="android:textColor">@color/ink</item>
+    </style>
+
+    <!-- Section heading -->
+    <style name="Text.Heading" parent="">
+        <item name="android:fontFamily">@font/barlow_sc_semibold</item>
+        <item name="android:textSize">29sp</item>
+        <item name="android:textColor">@color/ink</item>
+    </style>
+
+    <style name="Text.Tab" parent="">
+        <item name="android:fontFamily">@font/barlow_medium</item>
+        <item name="android:textSize">27sp</item>
+        <item name="android:textColor">@color/tab_text</item>
+    </style>
+
+    <style name="Text.Body" parent="">
+        <item name="android:fontFamily">@font/barlow_medium</item>
+        <item name="android:textSize">24sp</item>
+        <item name="android:textColor">@color/ink</item>
+    </style>
+
+    <style name="Text.Secondary" parent="">
+        <item name="android:fontFamily">@font/barlow_regular</item>
+        <item name="android:textSize">21sp</item>
+        <item name="android:textColor">@color/ink_2</item>
+    </style>
+
+    <style name="Text.Caption" parent="">
+        <item name="android:fontFamily">@font/barlow_regular</item>
+        <item name="android:textSize">19sp</item>
+        <item name="android:textColor">@color/ink_3</item>
+    </style>
+
+    <style name="Text.Button" parent="">
+        <item name="android:fontFamily">@font/barlow_semibold</item>
+        <item name="android:textSize">24sp</item>
+    </style>
+
+    <!-- ── Controls ───────────────────────────────────────────────────── -->
+
+    <!-- Top-bar destination (Home, Search, Library) -->
+    <style name="TopTab">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">match_parent</item>
         <item name="android:gravity">center</item>
-        <item name="android:textColor">@color/text_secondary</item>
-        <item name="android:textSize">@dimen/text_sm</item>
-        <item name="android:textAllCaps">false</item>
-        <item name="android:paddingHorizontal">@dimen/spacing_md</item>
+        <item name="android:paddingStart">@dimen/space_m</item>
+        <item name="android:paddingEnd">@dimen/space_m</item>
+        <item name="android:textAppearance">@style/Text.Tab</item>
+        <item name="android:textColor">@color/tab_text</item>
+        <item name="android:background">@drawable/tab_background</item>
+        <item name="android:foreground">?attr/selectableItemBackground</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
     </style>
 
-    <!-- Category buttons in the browse sidebar -->
-    <style name="CategoryButton" parent="Widget.AppCompat.Button.Borderless">
+    <!-- Library segment (Albums, Artists, …) -->
+    <style name="Segment">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">64dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">28dp</item>
+        <item name="android:paddingEnd">28dp</item>
+        <item name="android:layout_marginEnd">@dimen/space_s</item>
+        <item name="android:textAppearance">@style/Text.Body</item>
+        <item name="android:textColor">@color/tab_text</item>
+        <item name="android:background">@drawable/segment_background</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <!-- Icon button on the library side -->
+    <style name="IconButton">
+        <item name="android:layout_width">@dimen/icon_button</item>
+        <item name="android:layout_height">@dimen/icon_button</item>
+        <item name="android:padding">26dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <item name="tint">@color/ink_2</item>
+    </style>
+
+    <!-- Icon button on the now-playing panel -->
+    <style name="PanelButton">
+        <item name="android:layout_width">@dimen/panel_control</item>
+        <item name="android:layout_height">@dimen/panel_control</item>
+        <item name="android:padding">24dp</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <item name="tint">@color/panel_ink</item>
+    </style>
+
+    <!-- Primary action: amber pill -->
+    <style name="PillButton" parent="Widget.MaterialComponents.Button.UnelevatedButton">
+        <item name="android:layout_height">@dimen/button_height</item>
+        <item name="android:minHeight">@dimen/button_height</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:paddingStart">36dp</item>
+        <item name="android:paddingEnd">40dp</item>
+        <item name="android:textAppearance">@style/Text.Button</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:textColor">@color/on_accent</item>
+        <item name="backgroundTint">@color/accent</item>
+        <item name="cornerRadius">40dp</item>
+        <item name="iconSize">30dp</item>
+        <item name="iconPadding">14dp</item>
+        <item name="iconTint">@color/on_accent</item>
+    </style>
+
+    <!-- Secondary action: quiet raised pill -->
+    <style name="PillButton.Quiet">
+        <item name="android:textColor">@color/ink</item>
+        <item name="backgroundTint">@color/surface_hi</item>
+        <item name="iconTint">@color/ink</item>
+    </style>
+
+    <style name="Field">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:minHeight">@dimen/sidebar_btn_min_height</item>
-        <item name="android:gravity">center_vertical</item>
-        <item name="android:paddingHorizontal">@dimen/spacing_md</item>
-        <item name="android:textColor">@color/text_secondary</item>
-        <item name="android:textSize">@dimen/text_md</item>
-        <item name="android:textAllCaps">false</item>
+        <item name="android:layout_height">@dimen/field_height</item>
+        <item name="android:paddingStart">28dp</item>
+        <item name="android:paddingEnd">28dp</item>
+        <item name="android:background">@drawable/field_background</item>
+        <item name="android:textAppearance">@style/Text.Body</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="android:textColorHint">@color/ink_3</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:importantForAutofill">no</item>
     </style>
 
-    <!-- Selected state for category + source buttons -->
-    <style name="CategoryButton.Selected">
-        <item name="android:textColor">@color/accent</item>
-        <item name="android:backgroundTint">@color/accent_dim</item>
-    </style>
-
-    <!-- Now Playing pill button -->
-    <style name="NowPlayingButton" parent="Widget.AppCompat.Button">
+    <style name="FieldLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:minHeight">@dimen/sidebar_back_min_height</item>
-        <item name="android:textColor">@color/on_accent</item>
-        <item name="android:textSize">@dimen/text_sm</item>
-        <item name="android:textAllCaps">false</item>
-        <item name="android:backgroundTint">@color/accent</item>
-        <item name="android:paddingHorizontal">@dimen/spacing_md</item>
+        <item name="android:layout_marginTop">@dimen/space_m</item>
+        <item name="android:layout_marginBottom">@dimen/space_xs</item>
+        <item name="android:textAppearance">@style/Text.Secondary</item>
+    </style>
+
+    <style name="ShapeAppearance.Cover" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/cover_radius</item>
+    </style>
+
+    <style name="ShapeAppearance.Circle" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
     </style>
 </resources>

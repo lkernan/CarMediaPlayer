@@ -32,9 +32,6 @@ class MediaWidgetProvider_2x2 : AppWidgetProvider() {
                     Intent(context, MediaService::class.java)
                         .setAction(MediaService.ACTION_NEXT)
                 )
-            // Source switching — TODO: implement source cycling in MediaService
-            "com.saicmotor.media.widget.source_prev",
-            "com.saicmotor.media.widget.source_next" -> { /* no-op for now */ }
             else -> super.onReceive(context, intent)
         }
     }

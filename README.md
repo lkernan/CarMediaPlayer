@@ -1,6 +1,22 @@
 ## CarMediaPlayer
-A replacement for the stock media player in my MG4 Excite 51. Can play USB, Subsonic streams and Bluetooth A2DP.
+A replacement for the stock media player in my MG4 Excite 51, for streaming from a Navidrome (Subsonic) server.
 
-Installs over the stock media player and maintains the correct requirements for the launcher and system to still interact with it.  
+Installs over the stock media player and maintains the correct requirements for the launcher and system to still interact with it.
 
-Written with Claude code.
+Written with Claude Code.
+
+## Features
+
+- Stream from any Subsonic server.
+- Scrobbles plays, and saves them to send later when there's no signal.
+- Works with the stock launcher and all steering wheel controls.
+- Autoplay when the car starts: resume where you left off, shuffle your library, or stay quiet.
+- Pre-caches the next 10 songs and their covers.
+- Browse albums, artists and genres, plus search as you type.
+- Day and night themes that follow the car's theme.
+- One-tap updates from Settings.
+
+![Home, night skin](docs/screenshots/home-night.png)
+![Album page, day skin](docs/screenshots/album-day.png)
+![Library](docs/screenshots/library-night.png)
+![Settings](docs/screenshots/settings-day.png)
