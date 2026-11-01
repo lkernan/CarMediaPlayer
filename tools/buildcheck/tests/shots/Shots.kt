@@ -306,6 +306,12 @@ class Shots {
             settle()
         }.snap("10_search_night")
     }
+    /** The start of a song: the whole progress ball shows at the far left. */
+    @Test fun song_start_night() {
+        nightMode(true); playing()
+        PlayerState.transport.value = PlayerState.transport.value.copy(positionMs = 0)
+        launch().snap("24_song_start_night")
+    }
     @Test fun queue_night()    { nightMode(true); playing(); launch().apply { show(MainActivity.Destination.QUEUE) }.snap("11_queue_night") }
     @Test fun settings_night() { nightMode(true); playing(); launch().apply { show(MainActivity.Destination.SETTINGS) }.snap("12_settings_night") }
     @Test fun empty_first_run() { nightMode(true); fake.configured = false; launch().snap("13_first_run_night") }

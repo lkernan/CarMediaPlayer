@@ -65,13 +65,16 @@
             app:iconTint="@color/panel_on_accent"/>
     </LinearLayout>
 
-    <!-- Song + controls -->
+    <!-- Song + controls.  Not clipped to its padding: the progress bar reaches
+         16dp into it (so the track lines up with the text), and at the start
+         of a song the ball sits there. -->
     <LinearLayout
         android:id="@+id/info"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
+        android:clipToPadding="false"
         android:paddingStart="@dimen/panel_padding"
         android:paddingEnd="28dp"
         android:paddingBottom="28dp">

@@ -50,7 +50,7 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 `tools/buildcheck` builds the app's sources with the same dependencies as
 `app/build.gradle` and runs the Robolectric tests in `tools/buildcheck/tests`
-(28 service tests, 20 screenshot tests → `tools/buildcheck/app/build/shots`).
+(28 service tests, 21 screenshot tests → `tools/buildcheck/app/build/shots`).
 Needs JDK 17, Gradle 8.x, Android SDK platform 34 + build-tools 34
 (`local.properties` with `sdk.dir=...`).
 
