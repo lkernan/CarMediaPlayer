@@ -552,6 +552,38 @@ class ServiceTest {
         assertEquals(listOf("down", "up"), steps.toList())
     }
 
+    /** Navidrome too busy for a cover ("429"): asked again a moment later, then given up on. */
+    @Test
+    fun busyCoverRequestsAreAskedAgain() {
+        val server = java.net.ServerSocket(0, 10, java.net.InetAddress.getByName("127.0.0.1"))
+        val replies = java.util.concurrent.LinkedBlockingQueue(listOf(429, 429, 200, 429, 429, 429))
+        val hits = java.util.concurrent.atomic.AtomicInteger()
+        Thread {
+            try {
+                while (true) server.accept().use { socket ->
+                    val reader = socket.getInputStream().bufferedReader()
+                    var line = reader.readLine()
+                    while (!line.isNullOrEmpty()) line = reader.readLine()
+                    hits.incrementAndGet()
+                    val code = replies.poll() ?: 200
+                    socket.getOutputStream().apply {
+                        write("HTTP/1.1 $code X\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx".toByteArray())
+                        flush()
+                    }
+                }
+            } catch (_: Exception) {}
+        }.apply { isDaemon = true; start() }
+        val client = okhttp3.OkHttpClient.Builder()
+            .addInterceptor(com.saicmotor.media.data.RetryWhenBusy(listOf(10L, 10L))).build()
+        fun get() = client.newCall(okhttp3.Request.Builder()
+            .url("http://127.0.0.1:${server.localPort}/rest/getCoverArt?id=al-1").build()).execute()
+        get().use { assertEquals(200, it.code) }
+        assertEquals("busy twice, then the cover", 3, hits.get())
+        get().use { assertEquals("still busy after two more tries: given up", 429, it.code) }
+        assertEquals(6, hits.get())
+        server.close()
+    }
+
     /** The calls that turn the car's volume: the same ones the launcher makes (from the firmware). */
     @Test
     fun carVolumeCallsTheCarAdapterServiceLikeTheLauncher() {

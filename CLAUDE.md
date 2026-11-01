@@ -50,7 +50,7 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 `tools/buildcheck` builds the app's sources with the same dependencies as
 `app/build.gradle` and runs the Robolectric tests in `tools/buildcheck/tests`
-(26 service tests, 20 screenshot tests → `tools/buildcheck/app/build/shots`).
+(27 service tests, 20 screenshot tests → `tools/buildcheck/app/build/shots`).
 Needs JDK 17, Gradle 8.x, Android SDK platform 34 + build-tools 34
 (`local.properties` with `sdk.dir=...`).
 
@@ -135,6 +135,10 @@ Robolectric fails with FileSystemAlreadyExistsException when run together.
   **Don't set a custom User-Agent** on stream requests: it creates a new
   player with no transcoding (FLAC).  Cache key is `song-v2:<id>` for that reason.
 - Transcoded streams have no Content-Length and don't support ranges.
+- Navidrome only draws a couple of covers at a time and answers "429 Too
+  Many Requests" when too many arrive at once (the album grids).  The image
+  loader asks again after 0.5 s and 1.5 s (`data/RetryWhenBusy.kt`), and a
+  cover that still fails is fetched again later instead of never.
 
 ## Playback design (MediaService)
 

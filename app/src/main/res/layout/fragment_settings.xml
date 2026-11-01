@@ -150,14 +150,6 @@
             </LinearLayout>
         </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/space_s"
-            android:paddingStart="20dp"
-            android:text="@string/startup_note"
-            android:textAppearance="@style/Text.Caption"/>
-
         <!-- Set once, so it's at the bottom (the page scrolls here when it isn't set up). -->
         <TextView
             android:id="@+id/server_heading"

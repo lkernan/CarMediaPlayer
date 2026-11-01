@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
+import com.saicmotor.media.data.RetryWhenBusy
 import com.saicmotor.media.data.Storage
 import com.saicmotor.media.data.Library
 
@@ -41,10 +42,12 @@ class MyApplication : Application(), ImageLoaderFactory {
      * Covers are kept on disk whatever the server's cache headers say, so
      * the car doesn't redownload them over mobile data every drive.  The
      * cache is in device-protected storage, so the car's menus get the cover
-     * even right after the head unit boots.
+     * even right after the head unit boots.  A cover the server is too busy
+     * for is asked for again (see [RetryWhenBusy]).
      */
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
+            .okHttpClient { okhttp3.OkHttpClient.Builder().addInterceptor(RetryWhenBusy()).build() }
             .respectCacheHeaders(false)
             .diskCache {
                 DiskCache.Builder()

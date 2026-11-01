@@ -88,7 +88,6 @@
     <string name="startup_shuffle_body">A fresh shuffle every time.</string>
     <string name="startup_nothing">Don\'t play anything</string>
     <string name="startup_nothing_body">Music starts when you press play.</string>
-    <string name="startup_note">Only if nothing else is playing when the car starts.</string>
     <string name="settings_version">CarMediaPlayer %s</string>
     <!-- Settings → updates (only checked when the button is pressed) -->
     <string name="update_heading">Updates</string>

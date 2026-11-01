@@ -1117,8 +1117,14 @@ class MediaService : MediaBrowserServiceCompat() {
                 // to the car's menus.
                 .apply { if (key != null) { memoryCacheKey("$key#session"); diskCacheKey(key) } }
                 .build()
-            val bitmap = (imageLoader.execute(request).drawable as? BitmapDrawable)?.bitmap ?: return@launch
+            val bitmap = (imageLoader.execute(request).drawable as? BitmapDrawable)?.bitmap
             if (sessionArtUrl != url) return@launch
+            if (bitmap == null) {
+                // Couldn't get it (no signal, server busy): try again with the
+                // next metadata update rather than never for this song.
+                sessionArtUrl = null
+                return@launch
+            }
             sessionArt = bitmap
             session.setMetadata(buildMetadata())
         }
@@ -1713,6 +1719,8 @@ class MediaService : MediaBrowserServiceCompat() {
                     .memoryCacheKey("$key#session")
                     .diskCacheKey(key)
                     .diskCachePolicy(CachePolicy.ENABLED)
+                    // Not fetched (no signal, server busy): try again next time.
+                    .listener(onError = { _, _ -> prefetchedCovers.remove(key) })
                     .build()
             )
         }
