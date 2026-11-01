@@ -246,8 +246,13 @@ class MediaService : MediaBrowserServiceCompat() {
         private const val SWC_CENTER = 301
         private const val SWC_NEXT   = 300
         private const val SWC_PREV   = 299
+        /** The steering wheel's volume keys. */
+        private const val SWC_VOL_UP   = 297
+        private const val SWC_VOL_DOWN = 298
         /** How long to wait for the launcher to act on a wheel key before doing it ourselves. */
         private const val IGNORED_KEY_WAIT_MS = 500L
+        /** …and on a volume key (it changes the volume within a few milliseconds when it does). */
+        private const val IGNORED_VOLUME_KEY_WAIT_MS = 300L
         /** Start-up timing: the first song was partly downloaded (size unknown). */
         private const val PARTLY = -2
         /** A launcher "play" this soon after the centre key was let go came from it. */
@@ -430,6 +435,7 @@ class MediaService : MediaBrowserServiceCompat() {
      * and it starts counting afresh after every release.  The STAR key's
      * release is never reported (the system keeps it), so after a STAR press
      * the launcher ignores the next key — then we do what it would have done.
+     * (A held key still works for it: only a short press is lost.)
      */
     private var launcherKeysHeld = 0
     private val longPressedKeys = mutableSetOf<Int>()
@@ -443,7 +449,34 @@ class MediaService : MediaBrowserServiceCompat() {
         val ignored = --launcherKeysHeld != 0
         launcherKeysHeld = 0
         val held = longPressedKeys.remove(code) || longPress
-        if (ignored && !held && code in setOf(SWC_CENTER, SWC_NEXT, SWC_PREV)) coverIgnoredKey(code)
+        if (!ignored || held) return
+        when (code) {
+            SWC_CENTER, SWC_NEXT, SWC_PREV -> coverIgnoredKey(code)
+            SWC_VOL_UP, SWC_VOL_DOWN       -> coverIgnoredVolumeKey(code == SWC_VOL_UP)
+        }
+    }
+
+    /** Turns the car's volume like the launcher does. */
+    private val carVolume by lazy { CarVolume(this) }
+
+    @VisibleForTesting
+    internal var volumeStepperForTest: VolumeStepper? = null
+
+    /** When the car's volume last actually changed (see [volumeObserver]). */
+    private var lastCarVolumeChangeAt = -1L
+
+    /** Changes the volume as the launcher would have, for a volume key it ignored. */
+    private fun coverIgnoredVolumeKey(up: Boolean) {
+        val releasedAt = SystemClock.elapsedRealtime()
+        serviceScope.launch {
+            delay(IGNORED_VOLUME_KEY_WAIT_MS)
+            if (lastCarVolumeChangeAt >= releasedAt) return@launch           // it did act after all
+            val name = if (up) "up" else "down"
+            Log.i(KEY_TAG, "The launcher ignored the wheel's volume $name key (after a STAR press): doing it here")
+            val stepper = volumeStepperForTest ?: carVolume
+            val done = withContext(Dispatchers.IO) { stepper.step(up) }
+            if (!done) Log.w(KEY_TAG, "  → couldn't reach the car's audio service")
+        }
     }
 
     /** When the music last got a play / pause / skip, from anyone (see [coverIgnoredKey]). */
@@ -522,6 +555,7 @@ class MediaService : MediaBrowserServiceCompat() {
     private val volumeObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
             lastVolumeChangeAt = SystemClock.elapsedRealtime()
+            lastCarVolumeChangeAt = lastVolumeChangeAt
         }
     }
 
@@ -700,6 +734,7 @@ class MediaService : MediaBrowserServiceCompat() {
         } catch (e: Exception) {
             Log.w(TAG, "Can't watch for volume changes", e)
         }
+        carVolume.connect()
 
         // So the launcher brings us back when the car starts, not the radio.
         SaicModeBridge.reportAvailable(this)
@@ -767,6 +802,7 @@ class MediaService : MediaBrowserServiceCompat() {
         keyRouter.stop()
         try { unregisterReceiver(hardKeyReceiver) } catch (_: Exception) {}
         try { contentResolver.unregisterContentObserver(volumeObserver) } catch (_: Exception) {}
+        carVolume.disconnect()
         mediaFocusRequest?.let { getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it) }
         mediaFocusRequest = null
         session.release()

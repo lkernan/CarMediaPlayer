@@ -65,8 +65,6 @@ class CommandParcelable() : Parcelable {
 
         const val LAUNCHER_PACKAGE = "com.saicmotor.launcher"
         const val LAUNCHER_SERVICE = "com.saicmotor.launcher.model.LauncherService"
-        const val HARDKEY_PACKAGE  = "com.saicmotor.hardkey"
-        const val HARDKEY_SERVICE  = "com.saicmotor.hardkey.HardKeyService"
 
         // Events (com.saicmotor.common.ModeConstants in the firmware)
         /** Launcher → us: switch to this source and play. */

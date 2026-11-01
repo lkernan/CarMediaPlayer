@@ -44,8 +44,9 @@ object SaicModeBridge {
     }
 
     /**
-     * Tells the launcher (and the steering-wheel key service) that our music
-     * can play, so it restores us at start-up instead of the radio.
+     * Tells the launcher that our music can play, so it restores us at
+     * start-up instead of the radio.  (The launcher also names a
+     * com.saicmotor.hardkey service, but that app isn't on this firmware.)
      */
     fun reportAvailable(context: Context) {
         val states = listOf(
@@ -63,7 +64,6 @@ object SaicModeBridge {
             }
             val command = CommandParcelable(CommandParcelable.UPDATE_SOURCE_AVAILABLE, context.packageName, type, state)
             send(context, command, CommandParcelable.LAUNCHER_PACKAGE, CommandParcelable.LAUNCHER_SERVICE)
-            send(context, command, CommandParcelable.HARDKEY_PACKAGE, CommandParcelable.HARDKEY_SERVICE)
         }
         Log.i(TAG, "Reported music as available to the launcher")
     }

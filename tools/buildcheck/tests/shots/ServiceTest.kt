@@ -254,7 +254,8 @@ class ServiceTest {
             }
         val usb1 = toLauncher.first { it.event == 16417 && it.targetType == 0 }
         assertEquals(1, usb1.targetState)
-        assertTrue(sent.any { it.component?.className == "com.saicmotor.hardkey.HardKeyService" })
+        assertFalse("nothing for a hard-key app that isn't there",
+            sent.any { it.component?.packageName == "com.saicmotor.hardkey" })
         println("availability sent: ${toLauncher.joinToString { "type ${it.targetType}=${it.targetState}" }}")
     }
 
@@ -407,11 +408,11 @@ class ServiceTest {
         assertTrue(s.player().playWhenReady)
     }
 
-    private fun wheelKey(code: Int, down: Boolean) {
+    private fun wheelKey(code: Int, down: Boolean, longPress: Boolean = false) {
         app.sendBroadcast(Intent("com.saic.keyevent.hardkey.report")
             .putExtra("android.intent.extra.hardkey.keycode", code)
             .putExtra("android.intent.extra.hardkey.down", down)
-            .putExtra("android.intent.extra.hardkey.longpress", false))
+            .putExtra("android.intent.extra.hardkey.longpress", longPress))
         looper.idle()
     }
 
@@ -503,6 +504,89 @@ class ServiceTest {
         val index = s.player().currentMediaItemIndex
         idle(700)
         assertEquals("not skipped twice", index, s.player().currentMediaItemIndex)
+    }
+
+    /** The first volume press after STAR: the launcher drops it, so the app turns the volume itself. */
+    @Test
+    fun volumeKeyTheLauncherIgnoresAfterStarIsDoneHere() {
+        val s = service()
+        val steps = java.util.Collections.synchronizedList(mutableListOf<String>())
+        s.volumeStepperForTest = com.saicmotor.media.service.VolumeStepper { up ->
+            steps += if (up) "up" else "down"; true
+        }
+        idle(1_000)
+
+        // A press on its own is the launcher's.
+        wheelKey(297, true); wheelKey(297, false)
+        idle(400)
+        assertEquals(emptyList<String>(), steps.toList())
+
+        // STAR (its release never comes), then volume down: the launcher drops it.
+        wheelKey(17, true); wheelKey(298, true); wheelKey(298, false)
+        idle(400)
+        waitFor { steps.isNotEmpty() }
+        assertEquals(listOf("down"), steps.toList())
+
+        // The launcher counts afresh after that: the next press is its own again.
+        wheelKey(297, true); wheelKey(297, false)
+        idle(400)
+        assertEquals(listOf("down"), steps.toList())
+
+        // STAR, then up, but the car's volume changed anyway (the launcher did
+        // act): not turned up twice.
+        wheelKey(17, true); wheelKey(297, true); wheelKey(297, false)
+        app.contentResolver.notifyChange(
+            android.net.Uri.parse("content://settings/global/android.car.VOLUME_GROUP/0"), null)
+        idle(400)
+        assertEquals(listOf("down"), steps.toList())
+
+        // STAR, then a volume key held down: the launcher still handles that.
+        wheelKey(17, true); wheelKey(297, true); wheelKey(297, true, longPress = true); wheelKey(297, false)
+        idle(400)
+        assertEquals(listOf("down"), steps.toList())
+
+        // And another short one after STAR: up.
+        wheelKey(17, true); wheelKey(297, true); wheelKey(297, false)
+        idle(400)
+        waitFor { steps.size == 2 }
+        assertEquals(listOf("down", "up"), steps.toList())
+    }
+
+    /** The calls that turn the car's volume: the same ones the launcher makes (from the firmware). */
+    @Test
+    fun carVolumeCallsTheCarAdapterServiceLikeTheLauncher() {
+        val calls = mutableListOf<String>()
+        val audio = object : android.os.Binder() {
+            override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+                data.enforceInterface("com.saicmotor.carapi.audio.ICarAudioService")
+                calls += "audio $code ${data.readInt()}"
+                reply?.writeNoException()
+                return true
+            }
+        }
+        val adapter = object : android.os.Binder() {
+            override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+                data.enforceInterface("com.saicmotor.carapi.ICarAdapterService")
+                calls += "adapter $code ${data.readInt()}"
+                reply?.writeNoException()
+                reply?.writeStrongBinder(audio)
+                return true
+            }
+        }
+        shadowOf(app).setComponentNameAndServiceForBindServiceForIntent(
+            Intent("com.saicmotor.caradapter.CarAdapterService").setPackage("com.saicmotor.caradapter"),
+            ComponentName("com.saicmotor.caradapter", "com.saicmotor.caradapter.service.CarAdapterService"),
+            adapter)
+        val volume = com.saicmotor.media.service.CarVolume(app)
+        assertFalse("not connected yet", volume.step(true))
+        volume.connect()
+        looper.idle()
+        assertTrue(volume.step(true))
+        assertTrue(volume.step(false))
+        // queryClient(10) once, then ICarAudioService.volumeUp / volumeDown with the hard-key flag.
+        assertEquals(listOf("adapter 1 10", "audio 42 1024", "audio 43 1024"), calls)
+        volume.disconnect()
+        assertFalse(volume.step(true))
     }
 
     @Test

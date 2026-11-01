@@ -314,7 +314,10 @@ object SubsonicClient {
                 if (conn.responseCode == 401 || conn.responseCode == 403) {
                     throw SubsonicException(SubsonicException.Kind.AUTH, "The server refused the username or password")
                 }
-                conn.inputStream.bufferedReader().readText()
+                // Closed, not just read: the reply is gzipped, and an unclosed
+                // stream keeps its decompressor until the garbage collector
+                // gets to it ("A resource failed to call end" in the log).
+                conn.inputStream.use { it.bufferedReader().readText() }
             } finally {
                 conn.disconnect()
             }

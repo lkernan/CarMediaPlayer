@@ -50,7 +50,7 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 `tools/buildcheck` builds the app's sources with the same dependencies as
 `app/build.gradle` and runs the Robolectric tests in `tools/buildcheck/tests`
-(24 service tests, 20 screenshot tests → `tools/buildcheck/app/build/shots`).
+(26 service tests, 20 screenshot tests → `tools/buildcheck/app/build/shots`).
 Needs JDK 17, Gradle 8.x, Android SDK platform 34 + build-tools 34
 (`local.properties` with `sdk.dir=...`).
 
@@ -70,8 +70,8 @@ Robolectric fails with FileSystemAlreadyExistsException when run together.
 
 ## How the car talks to the app (learned from the firmware)
 
-- **Launcher mode commands**: the launcher and HardKeyService call
-  `startService` on MediaService with extra `"command"` = a
+- **Launcher mode commands**: the launcher calls `startService` on
+  MediaService with extra `"command"` = a
   `com.saicmotor.common.CommandParcelable` (int event, String pkg, int type,
   int state, Bundle).  Events: 32769 switch source, 32773 play, 32774 pause,
   16417 source available (types USB1 0, USB2 1, BT 2, ONLINE 3; state 1/0).
@@ -79,7 +79,9 @@ Robolectric fails with FileSystemAlreadyExistsException when run together.
 - **Start-up**: the launcher restores the last source ~10–15 s after boot and
   retries every 3 s about 5 times, then falls back to radio.  The app must
   report availability (Settings.System `usb1AvailableStatus` etc. + event
-  16417 to LauncherService and HardKeyService), which `SaicModeBridge.reportAvailable` does.
+  16417 to LauncherService), which `SaicModeBridge.reportAvailable` does.
+  (The launcher also names a `com.saicmotor.hardkey` HardKeyService, but
+  that app isn't on this firmware.)
   The last source is recorded from the audio-focus bundle
   `key_car_source_type=6` (→ type 0).
 - **Direct boot**: user storage unlocks ~25 s after boot, too late for the
@@ -99,8 +101,14 @@ Robolectric fails with FileSystemAlreadyExistsException when run together.
   release — so the first wheel key after a STAR press is ignored.  The app
   mirrors the count (`mirrorLauncherKeyCount`) and, if the launcher hasn't
   acted within 500 ms, does what the launcher would have done
-  (`coverIgnoredKey`).  The driver has STAR mapped to Back (Button Mapper)
-  and uses it all the time, e.g. to leave YouTube.
+  (`coverIgnoredKey`).  Volume keys are lost the same way: after 300 ms
+  with no change to the car's volume, the app turns it itself
+  (`coverIgnoredVolumeKey`, `CarVolume` — the launcher's own call:
+  CarAdapterService queryClient(10) → ICarAudioService volumeUp/volumeDown
+  with flag 1024, which picks the volume in use and shows the volume bar).
+  A held key still works for the launcher; only a short press is lost.
+  The driver has STAR mapped to Back (Button Mapper) and uses it all the
+  time, e.g. to leave YouTube.
 - **Wheel keys while YouTube is open**: the launcher keeps sending them to
   us (its source), as "play" for the centre key.  The centre key plays /
   pauses the app being watched (`wheelTarget` — the app that took the
