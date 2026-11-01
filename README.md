@@ -3,9 +3,9 @@ A replacement for the stock media player in my MG4 Excite 51, for streaming from
 
 Installs over the stock media player and maintains the correct requirements for the launcher and system to still interact with it.
 
-Written with Claude Code.
+Written with Claude Code. Credits to lkernan for the initial idea.
 
-## Tested on
+Tested on:
 - Australian 2025 MG4 Excite 51.
 - Firmware 1100 SWI131 R27 09.08.24.
 
@@ -22,8 +22,7 @@ Other models, regions or firmware versions may not work.
 - Day and night themes that follow the car's theme.
 - One-tap updates from Settings.
 
-## Uninstall
-- Uninstalling the update brings back the stock media app.
+To uninstall just remove the app update.
 
 ![Home, night skin](docs/screenshots/home-night.png)
 ![Album page, day skin](docs/screenshots/album-day.png)
