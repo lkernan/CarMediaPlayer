@@ -50,7 +50,7 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 `tools/buildcheck` builds the app's sources with the same dependencies as
 `app/build.gradle` and runs the Robolectric tests in `tools/buildcheck/tests`
-(28 service tests, 21 screenshot tests → `tools/buildcheck/app/build/shots`).
+(30 service tests, 21 screenshot tests → `tools/buildcheck/app/build/shots`).
 Needs JDK 17, Gradle 8.x, Android SDK platform 34 + build-tools 34
 (`local.properties` with `sdk.dir=...`).
 
@@ -155,6 +155,13 @@ Robolectric fails with FileSystemAlreadyExistsException when run together.
 - A continuous downloader fetches the next 10 songs while playing
   (`startDownloader`), pausing while the current song has < 10 s buffered.
 - `WaitForNetworkPolicy` retries through dead spots instead of failing.
+- A song that's still streaming (transcoded: no length, and the Ogg reader
+  can't tell its duration) would count as live radio, so a dropped
+  connection (Wi-Fi → mobile data leaving home, a dead spot) restarted it
+  from the beginning.  `SongSourceFactory` gives the player each song's
+  duration from its details, so it carries on from where it dropped.
+  Seeking such a song would also restart it (it isn't seekable until it's
+  downloaded), so skipping through it is refused (`seekWouldRestart`).
 - Start-up restores the queue from a snapshot in device storage and plays
   without the network; in shuffle it starts at the first fully cached song.
 - Start-up **always plays**, however the music was left at switch-off (the

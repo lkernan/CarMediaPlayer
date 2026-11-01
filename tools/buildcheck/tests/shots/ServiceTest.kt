@@ -552,6 +552,113 @@ class ServiceTest {
         assertEquals(listOf("down", "up"), steps.toList())
     }
 
+    /** An Ogg page (Ogg's checksum isn't checked by the player, so it's left at 0). */
+    private fun oggPage(type: Int, granule: Long, seq: Int, packet: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val head = java.nio.ByteBuffer.allocate(27).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        head.put("OggS".toByteArray()).put(0).put(type.toByte()).putLong(granule)
+            .putInt(0x1234).putInt(seq).putInt(0).put(1.toByte())
+        out.write(head.array()); out.write(packet.size); out.write(packet)
+        return out.toByteArray()
+    }
+
+    /**
+     * A song still streaming (transcoded: no length) gets its duration from
+     * the server's metadata, so a dropped connection carries on where it was
+     * instead of restarting the song (ExoPlayer restarts streams it can't
+     * tell the duration of, taking them for live radio).
+     */
+    /** A short Ogg Opus stream, as Navidrome sends the car (transcoded). */
+    private fun opusStream(): ByteArray {
+        val le = { n: Int -> java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(n).array() }
+        val opusHead = "OpusHead".toByteArray() + byteArrayOf(1, 2, 0x38, 0x01) + le(48_000) + byteArrayOf(0, 0, 0)
+        val opusTags = "OpusTags".toByteArray() + le(4) + "test".toByteArray() + le(0)
+        val audio = ByteArray(40) { if (it == 0) 0xFC.toByte() else 0 }
+        return oggPage(2, 0, 0, opusHead) + oggPage(0, 0, 1, opusTags) +
+            (0 until 5).fold(ByteArray(0)) { acc, i -> acc + oggPage(0, 960L * (i + 1), 2 + i, audio) }
+    }
+
+    @Test
+    fun streamingSongKnowsItsLength() {
+        val stream = opusStream()
+
+        fun durationSeen(factory: androidx.media3.extractor.ExtractorsFactory): Long? {
+            val source = androidx.media3.datasource.ByteArrayDataSource(stream)
+            val uri = android.net.Uri.parse("https://music.example.com/rest/stream?id=s1")
+            source.open(androidx.media3.datasource.DataSpec(uri))
+            // Length unknown, as for a transcoded stream.
+            val input = androidx.media3.extractor.DefaultExtractorInput(source, 0, androidx.media3.common.C.LENGTH_UNSET.toLong())
+            val extractor = factory.createExtractors(uri, emptyMap()).first { input.resetPeekPosition(); it.sniff(input) }
+            input.resetPeekPosition()
+            var seen: Long? = null
+            extractor.init(object : androidx.media3.extractor.ExtractorOutput {
+                override fun track(id: Int, type: Int) = androidx.media3.extractor.DummyTrackOutput()
+                override fun endTracks() {}
+                override fun seekMap(seekMap: androidx.media3.extractor.SeekMap) { seen = seekMap.durationUs }
+            })
+            val position = androidx.media3.extractor.PositionHolder()
+            repeat(50) {
+                if (seen == null && extractor.read(input, position) == androidx.media3.extractor.Extractor.RESULT_END_OF_INPUT) return seen
+            }
+            return seen
+        }
+
+        assertEquals("on its own, the player can't tell how long the stream is",
+            androidx.media3.common.C.TIME_UNSET, durationSeen(androidx.media3.extractor.DefaultExtractorsFactory()))
+        assertEquals("with the song's length from the server", 237_000_000L,
+            durationSeen(com.saicmotor.media.service.KnownDurationExtractors(237_000_000L)))
+    }
+
+    /**
+     * The player itself: a song streaming from the server (no length, like a
+     * transcoded one) gets its length from the song's details, isn't taken
+     * for live radio, and holding a skip key doesn't start it over.
+     */
+    @Test
+    fun streamingSongIsNotLiveRadioAndIsntSkippedThrough() {
+        val stream = opusStream()
+        val server = java.net.ServerSocket(0, 20, java.net.InetAddress.getByName("127.0.0.1"))
+        Thread {
+            try {
+                while (true) {
+                    val socket = server.accept()
+                    Thread {
+                        socket.use {
+                            val reader = it.getInputStream().bufferedReader()
+                            val request = reader.readLine().orEmpty()
+                            var line = reader.readLine()
+                            while (!line.isNullOrEmpty()) line = reader.readLine()
+                            val out = it.getOutputStream()
+                            if (request.contains("/rest/stream")) {
+                                // No Content-Length: the connection closing ends it.
+                                out.write("HTTP/1.1 200 OK\r\nContent-Type: audio/ogg\r\nConnection: close\r\n\r\n".toByteArray())
+                                out.write(stream)
+                            } else {
+                                val body = """{"subsonic-response":{"status":"ok","version":"1.16.1"}}""".toByteArray()
+                                out.write("HTTP/1.1 200 OK\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                                out.write(body)
+                            }
+                            out.flush()
+                        }
+                    }.start()
+                }
+            } catch (_: Exception) {}
+        }.apply { isDaemon = true; start() }
+        SubsonicSettings.save(app, SubsonicSettings.Config("http://127.0.0.1:${server.localPort}", "me", "secret"))
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PLAY)
+        val p = s.player()
+        waitFor { p.duration != androidx.media3.common.C.TIME_UNSET }
+        assertEquals("the song's length, from its details", 200_000L, p.duration)
+        assertFalse("not taken for live radio", p.isCurrentMediaItemLive)
+        assertFalse("can't seek in it yet", p.isCurrentMediaItemSeekable)
+        val before = p.currentPosition
+        assertFalse("fast forward refused", s.call("seekBy", 10_000L) as Boolean)
+        assertTrue("not started over or moved", p.currentPosition in before until before + 2_000)
+        server.close()
+    }
+
     private fun sessionCallback(s: MediaService) =
         Class.forName("com.saicmotor.media.service.MediaService\$SessionCallback")
             .getDeclaredConstructor(MediaService::class.java).apply { isAccessible = true }

@@ -44,7 +44,6 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ShuffleOrder
 import coil.imageLoader
 import coil.request.CachePolicy
@@ -688,12 +687,14 @@ class MediaService : MediaBrowserServiceCompat() {
         pendingScrobbles = PendingScrobbles(this)
 
         player = ExoPlayer.Builder(this)
-            // Songs are read through the song cache (see MediaCache), and a
-            // song that can't be fetched waits for the network quietly
-            // (see WaitForNetworkPolicy).
+            // Songs are read through the song cache (see MediaCache), a song
+            // that can't be fetched waits for the network quietly (see
+            // WaitForNetworkPolicy), and one still streaming carries on where
+            // it was if the connection drops (see SongSourceFactory).
             .setMediaSourceFactory(
-                DefaultMediaSourceFactory(MediaCache.dataSourceFactory(this))
-                    .setLoadErrorHandlingPolicy(WaitForNetworkPolicy())
+                SongSourceFactory(MediaCache.dataSourceFactory(this)) {
+                    it.mediaMetadata.extras?.getLong(X_DURATION, -1L)
+                }.setLoadErrorHandlingPolicy(WaitForNetworkPolicy())
             )
             .setLoadControl(
                 DefaultLoadControl.Builder()
@@ -1215,9 +1216,25 @@ class MediaService : MediaBrowserServiceCompat() {
         player.seekToPrevious()
     }
 
-    /** Seeks within the song.  Returns false if it hit the start or end. */
+    /**
+     * A song still streaming (not downloaded yet) can't be skipped through:
+     * the player would start it over from the beginning.  Not known until it
+     * has started loading, so a seek isn't stopped before then.
+     */
+    private fun seekWouldRestart(): Boolean {
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty) return false
+        val window = timeline.getWindow(player.currentMediaItemIndex, Timeline.Window())
+        return !window.isPlaceholder && !window.isSeekable
+    }
+
+    /** Seeks within the song.  Returns false if it hit the start or end (or can't seek). */
     private fun seekBy(deltaMs: Long): Boolean {
         if (player.mediaItemCount == 0) return false
+        if (seekWouldRestart()) {
+            Log.i(KEY_TAG, "  → can't skip through this song until it's downloaded")
+            return false
+        }
         val duration = player.duration
         var target = player.currentPosition + deltaMs
         var hitEdge = false
@@ -1511,6 +1528,10 @@ class MediaService : MediaBrowserServiceCompat() {
         }
         override fun onSeekTo(pos: Long) {
             stopFastSeek()
+            if (pos > 0 && seekWouldRestart()) {
+                Log.i(KEY_TAG, "  → can't skip through this song until it's downloaded")
+                return
+            }
             player.seekTo(pos)
         }
 

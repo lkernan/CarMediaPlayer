@@ -11,7 +11,7 @@ def SRC = new File(rootDir, '../../app/src/main').canonicalPath
 android {
     namespace 'com.saicmotor.media'
     compileSdk 34
-    defaultConfig { applicationId "com.saicmotor.media"; minSdk 27; targetSdk 28; versionCode 2000000024; versionName "1.0.6" }
+    defaultConfig { applicationId "com.saicmotor.media"; minSdk 27; targetSdk 28; versionCode 2000000025; versionName "1.0.7" }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
     kotlinOptions { jvmTarget = '1.8' }
     buildFeatures { viewBinding true }
