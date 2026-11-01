@@ -255,14 +255,6 @@ class Shots {
         com.saicmotor.media.data.SubsonicSettings.save(ctx, com.saicmotor.media.data.SubsonicSettings.Config("https://music.example.com", "demo", "secret"))
         launch().apply { show(MainActivity.Destination.SETTINGS) }.snap("17_settings_day")
     }
-    /** The bottom of Settings, with the last start-up's timing. */
-    @Test fun settings_startup_trace() {
-        nightMode(true); playing()
-        val ctx = ApplicationProvider.getApplicationContext<Context>()
-        com.saicmotor.media.data.SubsonicSettings.save(ctx, com.saicmotor.media.data.SubsonicSettings.Config("https://music.example.com", "demo", "secret"))
-        com.saicmotor.media.data.StartupTrace.save(ctx, com.saicmotor.media.data.StartupTrace.Last(2_800, 11_400, 12_100, 100))
-        launch().apply { show(MainActivity.Destination.SETTINGS) }.snap("20_settings_startup_trace_night")
-    }
     /** Settings scrolled to the bottom: the server, which is set once. */
     @Test fun settings_server_at_bottom() {
         nightMode(true); playing()

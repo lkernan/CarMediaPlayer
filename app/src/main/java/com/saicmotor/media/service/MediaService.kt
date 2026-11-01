@@ -52,7 +52,6 @@ import coil.request.ImageRequest
 import com.saicmotor.common.CommandParcelable
 import com.saicmotor.media.R
 import com.saicmotor.media.data.PlaybackSettings
-import com.saicmotor.media.data.StartupTrace
 import com.saicmotor.media.data.SubsonicSettings
 import com.saicmotor.media.subsonic.SubsonicAlbum
 import com.saicmotor.media.subsonic.SubsonicClient
@@ -249,6 +248,8 @@ class MediaService : MediaBrowserServiceCompat() {
         private const val SWC_PREV   = 299
         /** How long to wait for the launcher to act on a wheel key before doing it ourselves. */
         private const val IGNORED_KEY_WAIT_MS = 500L
+        /** Start-up timing: the first song was partly downloaded (size unknown). */
+        private const val PARTLY = -2
         /** A launcher "play" this soon after the centre key was let go came from it. */
         private const val CENTRE_KEY_WINDOW_MS = 1_000L
         /** Volume up / down: phone-style keys, and the steering wheel's (SWC_UP / SWC_DOWN). */
@@ -387,8 +388,9 @@ class MediaService : MediaBrowserServiceCompat() {
     /** When BootReceiver last told us the head unit started (elapsedRealtime). */
     private var bootSignalAt = 0L
 
-    // Timing of this start-up, for Settings (see StartupTrace).  traceFrom is
-    // when the head unit started (elapsedRealtime); -1 = not timing.
+    // Timing of this start-up, for the log ("Startup timing: …").  traceFrom
+    // is when the head unit started (elapsedRealtime); -1 = not timing.  On
+    // disk: percent of the first song, PARTLY, or -1 (unknown).
     private var traceFrom       = -1L
     private var traceQueueAt    = -1L
     private var traceLauncherAt = -1L
@@ -2151,7 +2153,7 @@ class MediaService : MediaBrowserServiceCompat() {
         traceQueueAt = SystemClock.elapsedRealtime()
         traceOnDiskPct = try {
             MediaCache.cachedFraction(this, mediaId)?.let { (it * 100).toInt() }
-                ?: if (MediaCache.cachedBytesFromStart(this, mediaId) > 0) StartupTrace.PARTLY else 0
+                ?: if (MediaCache.cachedBytesFromStart(this, mediaId) > 0) PARTLY else 0
         } catch (_: Exception) { -1 }
     }
 
@@ -2164,10 +2166,9 @@ class MediaService : MediaBrowserServiceCompat() {
         if (!traceAuto) return                            // started by a press, not at start-up
         if (now - from > STARTUP_WINDOW_MS * 2) return   // not a start-up any more
         fun rel(t: Long) = if (t >= 0) t - from else -1L
-        val last = StartupTrace.Last(rel(traceQueueAt), rel(traceLauncherAt), now - from, traceOnDiskPct)
-        Log.i(TAG, "Startup timing: queue back ${last.queueMs} ms, launcher asked ${last.launcherMs} ms, " +
-            "playing ${last.playingMs} ms after the head unit started; first song ${last.onDiskPct}% on disk")
-        StartupTrace.save(this, last)
+        val onDisk = if (traceOnDiskPct == PARTLY) "partly" else "$traceOnDiskPct%"
+        Log.i(TAG, "Startup timing: queue back ${rel(traceQueueAt)} ms, launcher asked ${rel(traceLauncherAt)} ms, " +
+            "playing ${now - from} ms after the head unit started; first song $onDisk on disk")
     }
 
     /**

@@ -15,7 +15,6 @@ import com.saicmotor.media.R
 import com.saicmotor.media.data.Library
 import com.saicmotor.media.data.PlaybackSettings
 import com.saicmotor.media.data.PlaybackSettings.StartupMode
-import com.saicmotor.media.data.StartupTrace
 import com.saicmotor.media.data.SubsonicSettings
 import com.saicmotor.media.databinding.FragmentSettingsBinding
 import com.saicmotor.media.subsonic.SubsonicClient
@@ -69,7 +68,6 @@ class SettingsFragment : Fragment() {
             ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
         } catch (_: Exception) { null }
         b.version.text = getString(R.string.settings_version, version ?: "")
-        showStartupTrace()
 
         // Updates: only when asked.
         b.checkUpdates.setOnClickListener { Updater.checkAndInstall(ctx) }
@@ -86,24 +84,6 @@ class SettingsFragment : Fragment() {
         } else if (savedInstanceState == null) {
             b.root.post { _b?.let { it.root.scrollTo(0, it.serverHeading.top) } }
         }
-    }
-
-    /** How long the last start-up took to get music playing, from when the head unit started (see StartupTrace). */
-    private fun showStartupTrace() {
-        val last = StartupTrace.load(requireContext()) ?: return
-        fun secs(ms: Long) = getString(R.string.seconds_short, ((ms + 500) / 1000).toInt())
-        val parts = listOfNotNull(
-            last.queueMs.takeIf { it >= 0 }?.let { getString(R.string.startup_trace_queue, secs(it)) },
-            last.launcherMs.takeIf { it >= 0 }?.let { getString(R.string.startup_trace_launcher, secs(it)) },
-            getString(R.string.startup_trace_playing, secs(last.playingMs)),
-            when {
-                last.onDiskPct >= 0                  -> getString(R.string.startup_trace_disk, last.onDiskPct)
-                last.onDiskPct == StartupTrace.PARTLY -> getString(R.string.startup_trace_disk_partly)
-                else                                 -> null
-            }
-        )
-        b.startupTrace.text = getString(R.string.startup_trace, parts.joinToString(" · "))
-        b.startupTrace.visibility = View.VISIBLE
     }
 
     private fun showUpdate(status: Updater.Status) {

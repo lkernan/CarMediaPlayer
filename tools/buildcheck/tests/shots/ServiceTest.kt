@@ -291,12 +291,11 @@ class ServiceTest {
         looper.idle()
         assertTrue(p.playWhenReady)
         assertEquals(42_000L, p.currentPosition)
-        // When it's playing, the timing is saved for Settings.
+        // The timing logged: the queue was back before the launcher asked.
+        fun field(name: String) = MediaService::class.java.getDeclaredField(name).apply { isAccessible = true }.get(s)
+        assertTrue((field("traceQueueAt") as Long) in 0..(field("traceLauncherAt") as Long))
+        assertEquals(0, field("traceOnDiskPct"))
         s.call("finishTrace")
-        val last = com.saicmotor.media.data.StartupTrace.load(app)!!
-        assertTrue(last.queueMs in 0..last.launcherMs)
-        assertEquals(0, last.onDiskPct)
-        println("startup trace: $last")
     }
 
     @Test

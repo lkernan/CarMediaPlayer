@@ -32,7 +32,7 @@ object Storage {
         context(ctx).getSharedPreferences(name, Context.MODE_PRIVATE)
 
     private val PREFS_FILES = listOf(
-        "subsonic_prefs", "playback_settings", "resume_state", "startup_trace"
+        "subsonic_prefs", "playback_settings", "resume_state"
     )
     private const val SNAPSHOT_FILE = "queue_snapshot.json"
     private const val FLAGS = "storage"

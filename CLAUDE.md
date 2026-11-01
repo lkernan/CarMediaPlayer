@@ -47,7 +47,7 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 `tools/buildcheck` builds the app's sources with the same dependencies as
 `app/build.gradle` and runs the Robolectric tests in `tools/buildcheck/tests`
-(24 service tests, 21 screenshot tests → `tools/buildcheck/app/build/shots`).
+(24 service tests, 20 screenshot tests → `tools/buildcheck/app/build/shots`).
 Needs JDK 17, Gradle 8.x, Android SDK platform 34 + build-tools 34
 (`local.properties` with `sdk.dir=...`).
 
@@ -139,4 +139,4 @@ Robolectric fails with FileSystemAlreadyExistsException when run together.
   "paused").  Only the "Don't play anything" setting, or another app
   already playing, keeps it quiet.
 - Failed scrobbles are queued and retried (`PendingScrobbles`).
-- Settings shows how the last start-up went (`data/StartupTrace.kt`).
+- The log shows how each start-up went ("Startup timing: …").

@@ -104,12 +104,4 @@
     <string name="update_failed_bad_file">The download isn\'t a newer version of this app.</string>
     <string name="update_failed_install">Couldn\'t install the update.</string>
     <string name="update_failed_install_detail">Couldn\'t install the update: %1$s</string>
-    <!-- Last start-up timing, counted from when the head unit started, e.g. "Last start-up: queue back at 3 s · the car asked for music at 11 s · playing at 12 s · first song 100% already downloaded" -->
-    <string name="startup_trace">Last start-up: %1$s</string>
-    <string name="startup_trace_queue">queue back at %1$s</string>
-    <string name="startup_trace_launcher">the car asked for music at %1$s</string>
-    <string name="startup_trace_playing">playing at %1$s</string>
-    <string name="startup_trace_disk">first song %1$d%% already downloaded</string>
-    <string name="startup_trace_disk_partly">first song partly downloaded already</string>
-    <string name="seconds_short">%1$d s</string>
 </resources>
