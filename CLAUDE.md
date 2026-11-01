@@ -47,7 +47,7 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 `tools/buildcheck` builds the app's sources with the same dependencies as
 `app/build.gradle` and runs the Robolectric tests in `tools/buildcheck/tests`
-(22 service tests, 21 screenshot tests → `tools/buildcheck/app/build/shots`).
+(24 service tests, 21 screenshot tests → `tools/buildcheck/app/build/shots`).
 Needs JDK 17, Gradle 8.x, Android SDK platform 34 + build-tools 34
 (`local.properties` with `sdk.dir=...`).
 
@@ -95,8 +95,15 @@ Robolectric fails with FileSystemAlreadyExistsException when run together.
   acts when a release brings the count to 0, resetting it after each
   release — so the first wheel key after a STAR press is ignored.  The app
   mirrors the count (`mirrorLauncherKeyCount`) and, if the launcher hasn't
-  acted within 500 ms, does the centre/next/previous itself (only when the
-  music is ours).
+  acted within 500 ms, does what the launcher would have done
+  (`coverIgnoredKey`).  The driver has STAR mapped to Back (Button Mapper)
+  and uses it all the time, e.g. to leave YouTube.
+- **Wheel keys while YouTube is open**: the launcher keeps sending them to
+  us (its source), as "play" for the centre key.  The centre key plays /
+  pauses the app being watched (`wheelTarget` — the app that took the
+  speakers, playing or paused, until its session goes away when it's
+  closed); next / previous / seek do nothing then.  Otherwise the keys are
+  the music's.
 - **Launcher now-playing tile** (`MediaView`): uses `METADATA_KEY_ALBUM_ART_URI`
   via Glide if present (slow), else the `ALBUM_ART` bitmap; so the app sends
   only the bitmap + DISPLAY_ICON_URI.  Any state other than PLAYING (3) shows

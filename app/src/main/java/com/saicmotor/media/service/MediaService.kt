@@ -16,6 +16,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.session.MediaController
+import android.media.session.PlaybackState
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -28,6 +29,7 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import android.view.KeyEvent
+import androidx.annotation.VisibleForTesting
 import androidx.annotation.OptIn
 import androidx.core.app.NotificationCompat
 import androidx.media.MediaBrowserServiceCompat
@@ -247,6 +249,8 @@ class MediaService : MediaBrowserServiceCompat() {
         private const val SWC_PREV   = 299
         /** How long to wait for the launcher to act on a wheel key before doing it ourselves. */
         private const val IGNORED_KEY_WAIT_MS = 500L
+        /** A launcher "play" this soon after the centre key was let go came from it. */
+        private const val CENTRE_KEY_WINDOW_MS = 1_000L
         /** Volume up / down: phone-style keys, and the steering wheel's (SWC_UP / SWC_DOWN). */
         private val VOLUME_HARDKEYS = setOf(24, 25, 297, 298)
         /** Play/pause: the steering wheel's centre (SWC_CENTER) and the mute key, which the launcher maps to it. */
@@ -371,6 +375,8 @@ class MediaService : MediaBrowserServiceCompat() {
 
     private var playStartedAt = 0L
     private var playReported  = false
+    /** The song Navidrome was last told is "now playing". */
+    private var nowPlayingSentFor: String? = null
 
     // ── Startup ────────────────────────────────────────────────────────────
 
@@ -410,9 +416,9 @@ class MediaService : MediaBrowserServiceCompat() {
                 in VOLUME_HARDKEYS -> lastVolumeChangeAt = SystemClock.elapsedRealtime()
                 in PLAY_HARDKEYS   -> lastPlayKeyAt = SystemClock.elapsedRealtime()
             }
-            mirrorLauncherKeyCount(code,
-                intent.getBooleanExtra(EXTRA_HARDKEY_DOWN, false),
-                intent.getBooleanExtra(EXTRA_HARDKEY_LONG, false))
+            val down = intent.getBooleanExtra(EXTRA_HARDKEY_DOWN, false)
+            if (code == SWC_CENTER && !down) lastCentreKeyAt = SystemClock.elapsedRealtime()
+            mirrorLauncherKeyCount(code, down, intent.getBooleanExtra(EXTRA_HARDKEY_LONG, false))
         }
     }
 
@@ -441,31 +447,72 @@ class MediaService : MediaBrowserServiceCompat() {
     /** When the music last got a play / pause / skip, from anyone (see [coverIgnoredKey]). */
     private var lastTransportCommandAt = -1L
 
-    /** The launcher has made us its source (and nothing else has taken the speakers since). */
-    private var launcherChoseUs = false
+    /** When the wheel's centre key was last let go. */
+    private var lastCentreKeyAt = -1L
 
+    private fun centreKeyJustPressed(): Boolean =
+        lastCentreKeyAt >= 0 && SystemClock.elapsedRealtime() - lastCentreKeyAt < CENTRE_KEY_WINDOW_MS
+
+    /** Does what the launcher would have done with a wheel key it ignored. */
     private fun coverIgnoredKey(code: Int) {
         val releasedAt = SystemClock.elapsedRealtime()
         serviceScope.launch {
             delay(IGNORED_KEY_WAIT_MS)
             if (lastTransportCommandAt >= releasedAt) return@launch           // it did act after all
-            val ours = !yieldedToOtherApp && (weOwnPlayback() || launcherChoseUs) && !otherAppIsPlaying()
             val name = when (code) { SWC_CENTER -> "centre"; SWC_NEXT -> "next"; else -> "previous" }
-            if (!ours) {
-                Log.i(KEY_TAG, "The launcher ignored the wheel's $name key, but the music isn't ours — leaving it")
-                return@launch
-            }
             Log.i(KEY_TAG, "The launcher ignored the wheel's $name key (after a STAR press): doing it here")
             lastTransportCommandAt = SystemClock.elapsedRealtime()
-            stopFastSeek()
-            when (code) {
-                SWC_CENTER -> {
+            val other = wheelTarget()
+            when {
+                code == SWC_CENTER && other != null -> toggleOther(other)
+                other != null -> Log.i(KEY_TAG, "  → ignored: ${other.packageName} has the speakers")
+                code == SWC_CENTER -> {
                     cancelStartupAction()
-                    if (player.playWhenReady) userPause() else userPlay()
+                    stopFastSeek()
+                    if (player.playWhenReady) userPause()
+                    else if (!externalPlayBlocked("wheel")) userPlay()
                 }
-                SWC_NEXT -> { cancelStartupIfQueueLoaded(); skipToNext() }
-                SWC_PREV -> { cancelStartupIfQueueLoaded(); skipToPrevious() }
+                code == SWC_NEXT -> { cancelStartupIfQueueLoaded(); skipToNext() }
+                else             -> { cancelStartupIfQueueLoaded(); skipToPrevious() }
             }
+        }
+    }
+
+    /**
+     * Another app the steering wheel should control instead of us: the one
+     * the driver is watching (YouTube) — playing, or paused but still open.
+     * Null when it's our music (including once that app has been closed).
+     */
+    internal interface OtherPlayer {
+        val packageName: String
+        val isPlaying: Boolean
+        fun play()
+        fun pause()
+    }
+
+    @VisibleForTesting
+    internal var otherPlayerForTest: OtherPlayer? = null
+
+    private fun wheelTarget(): OtherPlayer? {
+        otherPlayerForTest?.let { return it }
+        val c = externalKeyTarget() ?: return null
+        return object : OtherPlayer {
+            override val packageName: String = c.packageName
+            override val isPlaying: Boolean
+                get() = c.playbackState?.state.let { it == PlaybackState.STATE_PLAYING || it == PlaybackState.STATE_BUFFERING }
+            override fun play()  = c.transportControls.play()
+            override fun pause() = c.transportControls.pause()
+        }
+    }
+
+    /** The wheel's centre key while another app is being watched: play / pause it. */
+    private fun toggleOther(other: OtherPlayer) {
+        if (other.isPlaying) {
+            Log.i(KEY_TAG, "  → centre key: pausing ${other.packageName}")
+            other.pause()
+        } else {
+            Log.i(KEY_TAG, "  → centre key: playing ${other.packageName}")
+            other.play()
         }
     }
 
@@ -524,7 +571,6 @@ class MediaService : MediaBrowserServiceCompat() {
                 mediaFocusRequest = null
                 yieldedToOtherApp = true
                 yieldedAt = SystemClock.elapsedRealtime()
-                launcherChoseUs = false
                 Log.i(TAG, "Another app took the speakers; steering-wheel keys will follow it")
             }
         }
@@ -566,7 +612,6 @@ class MediaService : MediaBrowserServiceCompat() {
         if (granted) {
             mediaFocusRequest = request
             yieldedToOtherApp = false
-            launcherChoseUs = true
             claimMediaKeys("audio focus granted")
         } else {
             // e.g. during a phone call.  Don't keep the dead request around,
@@ -758,6 +803,7 @@ class MediaService : MediaBrowserServiceCompat() {
             if (isPlaying) {
                 requestMediaFocus()
                 claimMediaKeys("playback started")
+                sendNowPlaying()
                 scheduleLookAhead()
                 finishTrace()
             } else {
@@ -1317,20 +1363,23 @@ class MediaService : MediaBrowserServiceCompat() {
             lastTransportCommandAt = SystemClock.elapsedRealtime()
             val from = caller()
             Log.i(TAG, "play from $from")
-            if (externalPlayBlocked(from)) return
             if (from == packageName || player.isPlaying) {
                 playPressed()
                 return
             }
-            // The SAIC launcher sends "play" whenever the volume is changed
-            // while paused.  Give the volume change a moment to show up, and
-            // if this "play" came with one, stay paused.
+            // While we're paused the SAIC launcher sends "play" for the wheel's
+            // centre key — even while YouTube is playing — and for every volume
+            // change.  Give the key or volume change a moment to show up, then:
+            // centre key while watching another app → play / pause that app;
+            // volume change → stay paused; otherwise play, unless another app is.
             serviceScope.launch {
                 delay(VOLUME_PLAY_WAIT_MS)
-                if (isVolumeChangePlay()) {
-                    Log.i(TAG, "  → ignored: that was the volume being changed")
-                } else {
-                    playPressed()
+                val other = if (centreKeyJustPressed()) wheelTarget() else null
+                when {
+                    other != null             -> toggleOther(other)
+                    isVolumeChangePlay()      -> Log.i(TAG, "  → ignored: that was the volume being changed")
+                    externalPlayBlocked(from) -> Unit
+                    else                      -> playPressed()
                 }
             }
         }
@@ -1354,13 +1403,22 @@ class MediaService : MediaBrowserServiceCompat() {
             stopFastSeek()
             player.stop()
         }
+        /** A wheel key for the app being watched (YouTube) — skips and seeks leave our queue alone. */
+        private fun forOtherApp(): Boolean {
+            if (caller() == packageName) return false
+            val other = wheelTarget() ?: return false
+            Log.i(TAG, "  → ignored: ${other.packageName} has the speakers")
+            return true
+        }
         override fun onSkipToNext() {
             logCommand("next")
+            if (forOtherApp()) return
             cancelStartupIfQueueLoaded()
             skipToNext()
         }
         override fun onSkipToPrevious() {
             logCommand("previous")
+            if (forOtherApp()) return
             cancelStartupIfQueueLoaded()
             skipToPrevious()
         }
@@ -1368,11 +1426,13 @@ class MediaService : MediaBrowserServiceCompat() {
         // then sends ACTION_STOP_FAST_FORWARD when it's let go.
         override fun onFastForward() {
             logCommand("fastForward")
+            if (forOtherApp()) return
             cancelStartupIfQueueLoaded()
             startFastSeek(forward = true)
         }
         override fun onRewind() {
             logCommand("rewind")
+            if (forOtherApp()) return
             cancelStartupIfQueueLoaded()
             startFastSeek(forward = false)
         }
@@ -1432,9 +1492,20 @@ class MediaService : MediaBrowserServiceCompat() {
     private fun startPlayReport(item: MediaItem?) {
         playStartedAt = System.currentTimeMillis()
         playReported  = false
-        val songId = item?.mediaId?.takeIf { it.startsWith(SUBSONIC_SONG_PREFIX) }
+        if (player.isPlaying) sendNowPlaying()
+    }
+
+    /**
+     * Tells Navidrome what's playing — once the song is really playing, so
+     * not while the queue is put back (paused) at start-up, before the
+     * network is up.
+     */
+    private fun sendNowPlaying() {
+        val songId = player.currentMediaItem?.mediaId?.takeIf { it.startsWith(SUBSONIC_SONG_PREFIX) }
             ?.removePrefix(SUBSONIC_SONG_PREFIX) ?: return
-        reportPlay(songId, submission = false, timeMs = playStartedAt)
+        if (songId == nowPlayingSentFor) return
+        nowPlayingSentFor = songId
+        reportPlay(songId, submission = false, timeMs = System.currentTimeMillis())
     }
 
     /** Once enough has been heard, report the play (updates play counts). */
@@ -1862,7 +1933,6 @@ class MediaService : MediaBrowserServiceCompat() {
         Log.i(TAG, "Launcher: $command")
         if (command.event != CommandParcelable.UPDATE_SOURCE_AVAILABLE) {
             lastTransportCommandAt = SystemClock.elapsedRealtime()
-            launcherChoseUs = true
         }
         when (command.event) {
             CommandParcelable.UPDATE_SOURCE_AVAILABLE  -> SaicModeBridge.reportAvailable(this)

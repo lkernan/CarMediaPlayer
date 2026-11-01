@@ -442,6 +442,56 @@ class ServiceTest {
         assertTrue(s.player().playWhenReady)
     }
 
+    /** Stands in for YouTube: another app with its own player. */
+    private class FakeOtherPlayer(var playing: Boolean = true) : MediaService.OtherPlayer {
+        val calls = mutableListOf<String>()
+        override val packageName = "org.smarttube.stable"
+        override val isPlaying get() = playing
+        override fun play()  { calls += "play";  playing = true }
+        override fun pause() { calls += "pause"; playing = false }
+    }
+
+    @Test
+    fun centreKeyControlsTheAppBeingWatchedThenTheMusicOnceItsClosed() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        s.call("userPause")
+        val youtube = FakeOtherPlayer()
+        s.otherPlayerForTest = youtube
+        idle(1_000)
+
+        // Back (STAR), then centre: the launcher ignores it, the app passes it to YouTube.
+        wheelKey(17, true); wheelKey(301, true); wheelKey(301, false)
+        idle(700)
+        assertEquals(listOf("pause"), youtube.calls)
+        wheelKey(17, true); wheelKey(301, true); wheelKey(301, false)
+        idle(700)
+        assertEquals(listOf("pause", "play"), youtube.calls)
+        assertFalse("the music stays paused", s.player().playWhenReady)
+
+        // YouTube closed: the centre key is the music's again.
+        s.otherPlayerForTest = null
+        wheelKey(17, true); wheelKey(301, true); wheelKey(301, false)
+        idle(700)
+        assertTrue(s.player().playWhenReady)
+    }
+
+    @Test
+    fun skipKeysLeaveThePausedQueueAloneWhileAnotherAppIsWatched() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        s.call("userPause")
+        s.otherPlayerForTest = FakeOtherPlayer()
+        idle(1_000)
+        val index = s.player().currentMediaItemIndex
+        wheelKey(17, true); wheelKey(300, true); wheelKey(300, false)
+        idle(700)
+        assertEquals(index, s.player().currentMediaItemIndex)
+        assertFalse(s.player().playWhenReady)
+    }
+
     @Test
     fun wheelKeyAfterStarIsLeftAloneIfTheLauncherActs() {
         savePlayingState()
