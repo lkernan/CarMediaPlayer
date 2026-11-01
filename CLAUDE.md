@@ -3,8 +3,7 @@
 A fork of lkernan/CarMediaPlayer for the MG4 (SAIC head unit, firmware
 `1100 SWI131 R27 09.08.24`).  It **replaces the stock media app**
 (`com.saicmotor.media`, shared system UID, signed with the AOSP test platform
-key) and plays **only from a Navidrome server**.  README.md is just the
-description and screenshots.  History starts at 1.0, the first stable
+key) and plays **only from a Navidrome server**.  History starts at 1.0, the first stable
 release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 ## Releases
@@ -30,9 +29,13 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
   the title line): **short, plain dot points only** — a few words each,
   one per change, no explanations (e.g. "- Autoplay when car starts.").
   1.0's notes are just "Initial Release".
-- README.md's Features list is the app's description: short plain dot
-  points in the same style.  Change it only when a feature is added or
-  removed; release notes never go there.
+- README.md is the GitHub page: a short description (with credit to
+  lkernan), one sentence on the car and firmware it was tested on, the
+  Features list, a one-line uninstall note, then the screenshots.  The
+  owner edits it by hand, so keep their wording and layout (plain
+  sentences, no extra headings) and show any change before pushing it.
+  Features are short plain dot points; change them only when a feature is
+  added or removed.  Release notes never go there.
 - Commit to `master`.  Changes are never pushed to lkernan/CarMediaPlayer
   (the upstream project).
 - Bug reports come as a logcat from the car, sometimes with Navidrome server
