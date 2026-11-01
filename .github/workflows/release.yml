@@ -49,6 +49,7 @@ jobs:
             exit 1
           fi
           echo "name=$v" >> "$GITHUB_OUTPUT"
+          echo "code=$(sed -n 's/.*versionCode *\([0-9][0-9]*\).*/\1/p' app/build.gradle | head -1)" >> "$GITHUB_OUTPUT"
           if gh release view "v$v" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "v$v is already published: nothing to do."
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -115,11 +116,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.name }}
+          CODE: ${{ steps.version.outputs.code }}
         run: |
           set -euo pipefail
           # Notes: the message of the commit that set this version, without its
           # trailers; each paragraph on one line, lists left as they are.
-          c=$(git log -1 --format=%H -G "versionName *\"$VERSION\"" -- app/build.gradle)
+          # Found by versionCode, which every version changes (a versionName can
+          # repeat one from the original project, as 1.0 did).
+          c=$(git log -1 --format=%H -G "versionCode  *$CODE" -- app/build.gradle)
           git log -1 --format=%b "${c:-$GITHUB_SHA}" \
             | grep -v -e '^Co-Authored-By:' -e '^Claude-Session:' \
             | awk 'BEGIN { RS = ""; ORS = "\n\n" } { if ($0 !~ /(^|\n)- /) gsub(/\n/, " "); print }' > notes.md || true
