@@ -1001,13 +1001,39 @@ class MediaService : MediaBrowserServiceCompat() {
      * If the network is down, wait for it instead ([startNetworkWait]).
      */
     private fun recoverFromError(error: PlaybackException) {
+        // The server sent a message instead of the song (see SongReplies).
+        val refused = generateSequence(error.cause) { it.cause }.take(8).filterIsInstance<SongRefused>().firstOrNull()
+        if (refused != null) Log.w(TAG, "The server didn't send the song: ${refused.message}")
+        val generation = queueGeneration
+        val wanted     = mediaFocusRequest != null
+        if (refused?.notFound == true) {
+            // It's gone from the library (a queue saved before a rescan): no
+            // point waiting.  Skip it, or if it's a later song (being loaded
+            // ahead), take it out of the queue and carry on with this one.
+            val missing = refused.songId?.let { id ->
+                (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == songMediaId(id) }
+            }
+            val current = missing == null || missing == player.currentMediaItemIndex
+            if (!current || player.hasNextMediaItem()) {
+                endNetworkWait()
+                streamRetries = 0
+                if (current) {
+                    Log.w(TAG, "The server has no such song; skipping")
+                    player.seekToNextMediaItem()
+                } else {
+                    Log.w(TAG, "The server has no such song; taking it out of the queue")
+                    player.removeMediaItem(missing!!)
+                }
+                player.prepare()
+                if (wanted) player.play()
+                return
+            }
+        }
         if (isNetworkError(error)) {
             startNetworkWait()
             return
         }
         endNetworkWait()
-        val generation = queueGeneration
-        val wanted     = mediaFocusRequest != null
         if (streamRetries < MAX_STREAM_RETRIES) {
             streamRetries++
             val wait = STREAM_RETRY_MS * streamRetries
@@ -1668,9 +1694,9 @@ class MediaService : MediaBrowserServiceCompat() {
      *
      *  - Only while playing (not while paused, or before the launcher asks).
      *  - A new download waits while the song playing is short of data, so it
-     *    gets the connection first (one already going carries on: stopping
-     *    part-way through a transcoded song leaves a piece that can't be
-     *    joined cleanly to the rest later).
+     *    gets the connection first (one already going carries on: carrying on
+     *    later would fetch its first part again, as Navidrome starts a
+     *    transcoded song over for every request).
      *  - A download stops if its song is no longer coming up (you jumped
      *    elsewhere) or is now the one playing (the player takes over).
      *  - If the network drops, it tries again a few seconds later.
@@ -1680,6 +1706,8 @@ class MediaService : MediaBrowserServiceCompat() {
             while (isActive) {
                 delay(DOWNLOADER_IDLE_MS)
                 if (!player.playWhenReady || currentNeedsConnection()) continue
+                // A song the player has already streamed into the cache (see
+                // KeepWhatPlays) is found there: not downloaded again.
                 val target = upcomingItems(PRECACHE_SONGS).firstOrNull {
                     it.mediaId !in precached && (downloadFailures[it.mediaId] ?: 0) < MAX_DOWNLOAD_FAILURES
                 } ?: continue

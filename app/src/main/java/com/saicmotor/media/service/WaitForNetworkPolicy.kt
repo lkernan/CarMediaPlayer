@@ -25,9 +25,10 @@ import java.net.UnknownHostException
  * Here, when the problem is the connection itself, the player just keeps
  * trying every [NETWORK_RETRY_MS] while showing "buffering", so the song
  * starts within a second or two of the server being reachable.  A server
- * error (5xx: restarting) is waited out too.  Anything else — the song is
- * missing, or can't be read — is reported after a few tries, and the app
- * retries or skips it.
+ * error (5xx: restarting) is waited out too.  A song the server says doesn't
+ * exist is reported straight away, and the app skips it.  Anything else — an
+ * error message instead of the song, or a song that can't be read — is
+ * reported after a few tries, and the app retries or skips it.
  */
 @OptIn(UnstableApi::class)
 class WaitForNetworkPolicy : DefaultLoadErrorHandlingPolicy() {
@@ -36,6 +37,8 @@ class WaitForNetworkPolicy : DefaultLoadErrorHandlingPolicy() {
         val e = info.exception
         val httpCode = (e as? HttpDataSource.InvalidResponseCodeException)?.responseCode
         return when {
+            // The server says the song doesn't exist: the app skips it (see MediaService).
+            e is SongRefused && e.notFound -> C.TIME_UNSET
             httpCode != null && httpCode >= 500 ->
                 if (info.errorCount > MAX_WAIT_RETRIES) C.TIME_UNSET else SERVER_RETRY_MS
             httpCode != null -> C.TIME_UNSET   // 4xx: missing / not allowed — no point waiting

@@ -153,7 +153,7 @@ object FakeCovers {
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
-@Config(sdk = [28], qualifiers = "w1920dp-h720dp-land-mdpi")
+@Config(sdk = [28], qualifiers = "w1920dp-h720dp-land-mdpi", shadows = [InstantAudioTrack::class])
 class Shots {
 
     private val out = java.io.File("build/shots").absolutePath

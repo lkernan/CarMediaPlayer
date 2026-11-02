@@ -37,7 +37,7 @@ import java.time.Duration
  */
 @RunWith(AndroidJUnit4::class)
 @LooperMode(LooperMode.Mode.PAUSED)
-@Config(sdk = [28], qualifiers = "w1920dp-h720dp-land-mdpi")
+@Config(sdk = [28], qualifiers = "w1920dp-h720dp-land-mdpi", shadows = [InstantAudioTrack::class])
 class ServiceTest {
 
     private val app get() = ApplicationProvider.getApplicationContext<Application>()
@@ -45,6 +45,10 @@ class ServiceTest {
 
     @Before
     fun setUp() {
+        // A fresh song cache: the app keeps one for as long as it runs, and the tests share one run.
+        val cache = com.saicmotor.media.service.MediaCache::class.java.getDeclaredField("cache").apply { isAccessible = true }
+        (cache.get(null) as? androidx.media3.datasource.cache.SimpleCache)?.release()
+        cache.set(null, null)
         // Port 9 on this machine: refuses straight away, like no network.
         SubsonicSettings.save(app, SubsonicSettings.Config("http://127.0.0.1:9", "me", "secret"))
     }

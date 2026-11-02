@@ -67,18 +67,21 @@ object MediaCache {
             .setCache(cache)
             .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(cache).setFragmentSize(PIECE_BYTES))
             .setUpstreamDataSourceFactory(
-                // No User-Agent of our own: Navidrome treats each client name +
-                // User-Agent as a separate "player", and its transcoding
-                // (e.g. Opus 128k for the car) is set per player.  Songs must
-                // be fetched with the same User-Agent as the app's other
-                // requests (Android's default), or Navidrome registers a new
-                // player with no transcoding and sends the original files.
-                DefaultHttpDataSource.Factory()
-                    .setAllowCrossProtocolRedirects(true)
-                    // Short: while the connection is coming up, a hung attempt
-                    // shouldn't hold up the next one (see WaitForNetworkPolicy).
-                    .setConnectTimeoutMs(6_000)
-                    .setReadTimeoutMs(15_000)
+                // An error message in place of the song is never saved as the song (see SongReplies).
+                SongReplies.Factory(
+                    // No User-Agent of our own: Navidrome treats each client name +
+                    // User-Agent as a separate "player", and its transcoding
+                    // (e.g. Opus 128k for the car) is set per player.  Songs must
+                    // be fetched with the same User-Agent as the app's other
+                    // requests (Android's default), or Navidrome registers a new
+                    // player with no transcoding and sends the original files.
+                    DefaultHttpDataSource.Factory()
+                        .setAllowCrossProtocolRedirects(true)
+                        // Short: while the connection is coming up, a hung attempt
+                        // shouldn't hold up the next one (see WaitForNetworkPolicy).
+                        .setConnectTimeoutMs(6_000)
+                        .setReadTimeoutMs(15_000)
+                )
             )
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
     }

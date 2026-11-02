@@ -6,6 +6,8 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManagerProvider
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
 import androidx.media3.exoplayer.source.MediaSource
@@ -20,7 +22,8 @@ import androidx.media3.extractor.PositionHolder
 import androidx.media3.extractor.SeekMap
 
 /**
- * Builds the player's source for each song, telling it how long the song is.
+ * Builds the player's source for each song, telling it how long the song is
+ * (and keeping what it streams, see [KeepWhatPlays]).
  *
  * A song that isn't downloaded yet streams from Navidrome transcoded, with no
  * length, and the Ogg reader can't work out its duration either.  ExoPlayer
@@ -50,10 +53,44 @@ internal class SongSourceFactory(
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
         val durationUs = durationMsOf(mediaItem)?.takeIf { it > 0 }?.times(1_000) ?: C.TIME_UNSET
-        return ProgressiveMediaSource.Factory(dataSourceFactory, KnownDurationExtractors(durationUs))
+        return ProgressiveMediaSource.Factory(KeepWhatPlays(dataSourceFactory), KnownDurationExtractors(durationUs))
             .setDrmSessionManagerProvider(drm)
             .setLoadErrorHandlingPolicy(loadErrors)
             .createMediaSource(mediaItem)
+    }
+}
+
+/**
+ * Lets the song cache keep what the player streams.
+ *
+ * ExoPlayer asks the cache not to keep a stream of unknown length (it takes
+ * it for live radio), and a song still streaming from Navidrome is just that:
+ * transcoded, with no length.  So a song the look-ahead hadn't downloaded —
+ * the first one after a skip or a new album — was never kept, and when the
+ * car started again it had to come from the server (no signal yet: silence).
+ * Navidrome makes the same bytes every time it transcodes a song (only the
+ * Ogg serial number differs, which nothing checks), so a song picked up again
+ * after a dropped connection is kept whole too.
+ */
+@OptIn(UnstableApi::class)
+internal class KeepWhatPlays(private val upstream: DataSource.Factory) : DataSource.Factory {
+
+    override fun createDataSource(): DataSource = object : DataSource {
+        private val source = upstream.createDataSource()
+
+        override fun addTransferListener(transferListener: TransferListener) = source.addTransferListener(transferListener)
+
+        override fun open(dataSpec: DataSpec): Long = source.open(
+            dataSpec.buildUpon().setFlags(dataSpec.flags and DataSpec.FLAG_DONT_CACHE_IF_LENGTH_UNKNOWN.inv()).build()
+        )
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int = source.read(buffer, offset, length)
+
+        override fun getUri(): Uri? = source.uri
+
+        override fun getResponseHeaders(): Map<String, List<String>> = source.responseHeaders
+
+        override fun close() = source.close()
     }
 }
 
