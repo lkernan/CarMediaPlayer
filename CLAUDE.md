@@ -50,9 +50,10 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 `tools/buildcheck` builds the app's sources with the same dependencies as
 `app/build.gradle` and runs the Robolectric tests in `tools/buildcheck/tests`
-(30 service tests, 10 streaming tests, 21 screenshot tests →
-`tools/buildcheck/app/build/shots`, and 7 against a real Navidrome, skipped
-unless one is running: `tools/navidrome/README.md`).
+(31 service tests, 10 streaming tests, 21 screenshot tests →
+`tools/buildcheck/app/build/shots`, 7 against a real Navidrome, skipped
+unless one is running: `tools/navidrome/README.md`, and 15 with the car's own
+launcher, skipped unless its APK is given: `tools/firmware/README.md`).
 Needs JDK 17, Gradle 8.x, Android SDK platform 34 + build-tools 34
 (`local.properties` with `sdk.dir=...`).
 
@@ -88,6 +89,17 @@ source (`tools/navidrome`), through a `Relay` that can break, slow or cut off
 the connection.  Run it with `--rerun` (Gradle doesn't notice the
 environment) and a freshly started server (empty transcoding cache).
 
+`LauncherWheelTest` runs the SAIC launcher's own steering-wheel code
+(SwcManager, ModeManager's key handling, VolumeManager, SAIC's car API),
+converted from the firmware's Launcher APK with dex2jar at test time
+(`FIRMWARE_LAUNCHER_APK`; SAIC's code never goes in the repo).  `LauncherCode`
+loads it with stack map frames worked out (dex2jar's are missing) and empty
+stand-ins for SAIC's additions to Android.  The launcher gets the same key
+reports as the app, sends the app's session its commands through an Android
+MediaController (delivered on the main thread; its state is the one the app
+last set), and turns a stand-in car audio service, decoded with the
+firmware's own interface constants.  Its work thread is the main thread here.
+
 ## How the car talks to the app (learned from the firmware)
 
 - **Launcher mode commands**: the launcher calls `startService` on
@@ -110,13 +122,16 @@ environment) and a freshly started server (empty transcoding cache).
   (`data/Storage.kt`).  Widgets can't be updated until unlock.
 - **Steering wheel** (broadcast `com.saic.keyevent.hardkey.report`, extras
   `android.intent.extra.hardkey.keycode/down/longpress`): 300/299 next/prev,
-  301 centre = play/pause, 297/298 volume.  The launcher's SwcManager calls
-  `play()` on any volume press if the session isn't PLAYING, so the app
-  ignores a "play" that arrives just after a volume change (`isVolumeChangePlay`).
-  So a launcher "play" while paused waits 250 ms before acting; a pause that
-  comes after it drops it (`pauseCommands`), so quick presses end on the last
-  one.  For ~1 s after a pause the music's own sound is still fading out, so
-  it doesn't count as another app playing (`OWN_SOUND_FADE_MS`).
+  301 centre = play/pause, 297/298 volume.  The launcher acts on a key when
+  it's let go; the reports come as it's pressed.  It picks play or pause for
+  the centre key by the session's state, and calls `play()` on any volume
+  press if the session isn't PLAYING.  So a launcher "play" while paused is
+  judged by the latest key reported (`launcherPlayCause`): the centre key →
+  acted on at once (if it waited, a quick second press saw "paused" and sent
+  "play" again); a volume change → ignored; neither → wait 250 ms for a late
+  report, and a pause that comes meanwhile drops it (`pauseCommands`).  For
+  ~1 s after a pause the music's own sound is still fading out, so it doesn't
+  count as another app playing (`OWN_SOUND_FADE_MS`).
   Holding left/right: the launcher sends fastForward/rewind then
   `__STOP_FAST_FORWARD__`.
 - **STAR key (17)**: its release is never reported (the system intercepts

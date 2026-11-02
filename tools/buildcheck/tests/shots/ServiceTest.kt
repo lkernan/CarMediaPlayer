@@ -172,13 +172,16 @@ class ServiceTest {
             app.sendBroadcast(Intent("com.saic.keyevent.hardkey.report").putExtra("android.intent.extra.hardkey.keycode", code))
             looper.idle()
         }
-        assertFalse(s.call("isVolumeChangePlay") as Boolean)
+        fun cause() = s.call("launcherPlayCause").toString()
+        assertEquals("NOT_KNOWN", cause())
         hardKey(297)                       // steering-wheel volume up
-        assertTrue(s.call("isVolumeChangePlay") as Boolean)
+        assertEquals("VOLUME", cause())
         idle(1_200)
-        assertFalse("a play long after is a real play", s.call("isVolumeChangePlay") as Boolean)
-        hardKey(298); hardKey(301)         // volume, then the play/pause key
-        assertFalse("play/pause pressed: play", s.call("isVolumeChangePlay") as Boolean)
+        assertEquals("a play long after is a real play", "NOT_KNOWN", cause())
+        hardKey(298); idle(10); hardKey(301)   // volume, then the play/pause key
+        assertEquals("play/pause pressed: play", "CENTRE_KEY", cause())
+        idle(100); hardKey(297)            // play/pause, then volume
+        assertEquals("the volume, just after play/pause", "VOLUME", cause())
     }
 
     /** The launcher's tile must use the cover bitmap, so the art URL isn't published as ALBUM_ART_URI. */
@@ -693,6 +696,38 @@ class ServiceTest {
         // Long after the pause, sound is another app's: it keeps the music quiet.
         launcher.onPause(); idle(1_500); launcher.onPlay(); idle(400)
         assertFalse(s.player().playWhenReady)
+        s.callerForTest = null
+    }
+
+    /**
+     * The launcher's "play" for the centre key is acted on at once (it decides
+     * play or pause by the state it sees, so a quick second press then pauses),
+     * and a volume press just after a pause doesn't play.  (LauncherWheelTest
+     * does the same with the launcher's own code.)
+     */
+    @Test
+    fun centreKeyPlaysAtOnceAndVolumeAfterAPauseDoesnt() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        s.call("userPause")
+        idle(1_500)
+        val launcher = sessionCallback(s)
+        s.callerForTest = "com.saicmotor.launcher"
+
+        // Centre key: reported as it's pressed; the launcher acts when it's let go.
+        wheelKey(301, true); idle(100); wheelKey(301, false)
+        launcher.onPlay(); looper.idle()
+        assertTrue("playing at once", s.player().playWhenReady)
+        // A second press: the launcher sees it playing and pauses.
+        idle(100); wheelKey(301, true); idle(100); wheelKey(301, false)
+        launcher.onPause(); idle(500)
+        assertFalse(s.player().playWhenReady)
+
+        // Volume up 150 ms later: the launcher sends "play" with it.
+        idle(150); wheelKey(297, true); idle(100); wheelKey(297, false)
+        launcher.onPlay(); idle(500)
+        assertFalse("still paused", s.player().playWhenReady)
         s.callerForTest = null
     }
 

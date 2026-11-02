@@ -256,7 +256,7 @@ class MediaService : MediaBrowserServiceCompat() {
         private const val OWN_SOUND_FADE_MS = 1_000L
         /** Start-up timing: the first song was partly downloaded (size unknown). */
         private const val PARTLY = -2
-        /** A launcher "play" this soon after the centre key was let go came from it. */
+        /** A launcher "play" this soon after the play/pause key was reported came from it. */
         private const val CENTRE_KEY_WINDOW_MS = 1_000L
         /** Volume up / down: phone-style keys, and the steering wheel's (SWC_UP / SWC_DOWN). */
         private val VOLUME_HARDKEYS = setOf(24, 25, 297, 298)
@@ -430,7 +430,6 @@ class MediaService : MediaBrowserServiceCompat() {
                 in PLAY_HARDKEYS   -> lastPlayKeyAt = SystemClock.elapsedRealtime()
             }
             val down = intent.getBooleanExtra(EXTRA_HARDKEY_DOWN, false)
-            if (code == SWC_CENTER && !down) lastCentreKeyAt = SystemClock.elapsedRealtime()
             mirrorLauncherKeyCount(code, down, intent.getBooleanExtra(EXTRA_HARDKEY_LONG, false))
         }
     }
@@ -497,11 +496,27 @@ class MediaService : MediaBrowserServiceCompat() {
     @VisibleForTesting
     internal var callerForTest: String? = null
 
-    /** When the wheel's centre key was last let go. */
-    private var lastCentreKeyAt = -1L
+    /** What a launcher "play" came from (see [launcherPlayCause]). */
+    private enum class PlayCause { CENTRE_KEY, VOLUME, NOT_KNOWN }
 
-    private fun centreKeyJustPressed(): Boolean =
-        lastCentreKeyAt >= 0 && SystemClock.elapsedRealtime() - lastCentreKeyAt < CENTRE_KEY_WINDOW_MS
+    /**
+     * What a launcher "play" arriving now came from: the wheel's play/pause
+     * key, a volume change, or neither as far as we know (the launcher's own
+     * play button, or the key's report hasn't come yet).  Whichever was
+     * latest: a volume press just after pausing isn't a press of play.  Keys
+     * are reported as they're pressed and the launcher acts when they're let
+     * go, so the report normally comes first.
+     */
+    private fun launcherPlayCause(): PlayCause {
+        val now = SystemClock.elapsedRealtime()
+        val key = lastPlayKeyAt >= 0 && now - lastPlayKeyAt < CENTRE_KEY_WINDOW_MS
+        val volume = lastVolumeChangeAt >= 0 && now - lastVolumeChangeAt < VOLUME_PLAY_WINDOW_MS
+        return when {
+            key && (!volume || lastPlayKeyAt > lastVolumeChangeAt) -> PlayCause.CENTRE_KEY
+            volume -> PlayCause.VOLUME
+            else   -> PlayCause.NOT_KNOWN
+        }
+    }
 
     /** Does what the launcher would have done with a wheel key it ignored. */
     private fun coverIgnoredKey(code: Int) {
@@ -1320,17 +1335,6 @@ class MediaService : MediaBrowserServiceCompat() {
     }
 
     /**
-     * True if an outside "play" that just arrived came with a volume change
-     * (and not with a press of the play/pause key).
-     */
-    private fun isVolumeChangePlay(): Boolean {
-        val now = SystemClock.elapsedRealtime()
-        val window = VOLUME_PLAY_WINDOW_MS + VOLUME_PLAY_WAIT_MS
-        if (lastPlayKeyAt >= 0 && now - lastPlayKeyAt < window) return false
-        return lastVolumeChangeAt >= 0 && now - lastVolumeChangeAt < window
-    }
-
-    /**
      * True if a "play" from another app should be ignored because something
      * else is playing.  The SAIC launcher sends our session "play" whenever the
      * volume is changed while we're paused — even while YouTube is playing —
@@ -1494,21 +1498,39 @@ class MediaService : MediaBrowserServiceCompat() {
             }
             // While we're paused the SAIC launcher sends "play" for the wheel's
             // centre key — even while YouTube is playing — and for every volume
-            // change.  Give the key or volume change a moment to show up, then:
-            // centre key while watching another app → play / pause that app;
-            // volume change → stay paused; otherwise play, unless another app is.
-            val pausesBefore = pauseCommands
-            serviceScope.launch {
-                delay(VOLUME_PLAY_WAIT_MS)
-                val other = if (centreKeyJustPressed()) wheelTarget() else null
-                when {
-                    // Paused since (quick presses): the later press wins.
-                    pauseCommands != pausesBefore -> Log.i(TAG, "  → dropped: paused since")
-                    other != null                 -> toggleOther(other)
-                    isVolumeChangePlay()          -> Log.i(TAG, "  → ignored: that was the volume being changed")
-                    externalPlayBlocked(from)     -> Unit
-                    else                          -> playPressed()
+            // change.  Centre key → play / pause the app being watched, if
+            // there is one, else play; volume change → stay paused.  The
+            // centre key is acted on at once: the launcher picks play or pause
+            // by what it sees, so while a "play" waited here a quick second
+            // press sent "play" again (and was lost) instead of "pause".
+            when (launcherPlayCause()) {
+                PlayCause.CENTRE_KEY -> centreKeyPlay(from)
+                PlayCause.VOLUME     -> Log.i(TAG, "  → ignored: that was the volume being changed")
+                PlayCause.NOT_KNOWN  -> {
+                    // Give the key or volume change a moment to show up.
+                    val pausesBefore = pauseCommands
+                    serviceScope.launch {
+                        delay(VOLUME_PLAY_WAIT_MS)
+                        when {
+                            // Paused since: the later command wins.
+                            pauseCommands != pausesBefore -> Log.i(TAG, "  → dropped: paused since")
+                            else -> when (launcherPlayCause()) {
+                                PlayCause.CENTRE_KEY -> centreKeyPlay(from)
+                                PlayCause.VOLUME     -> Log.i(TAG, "  → ignored: that was the volume being changed")
+                                PlayCause.NOT_KNOWN  -> if (!externalPlayBlocked(from)) playPressed()
+                            }
+                        }
+                    }
                 }
+            }
+        }
+        /** The wheel's centre key, paused: the app being watched, if there is one, else the music. */
+        private fun centreKeyPlay(from: String) {
+            val other = wheelTarget()
+            when {
+                other != null             -> toggleOther(other)
+                externalPlayBlocked(from) -> Unit
+                else                      -> playPressed()
             }
         }
         private fun playPressed() {
