@@ -8,6 +8,11 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 def SRC = new File(rootDir, '../../app/src/main').canonicalPath
+// The SAIC launcher's own code, for LauncherWheelTest: converted from the head
+// unit's firmware when FIRMWARE_LAUNCHER_APK points at its Launcher APK.  It's
+// SAIC's, so it never goes in the repo (see tools/firmware/README.md).
+def launcherApk = System.getenv('FIRMWARE_LAUNCHER_APK')
+def launcherJar = layout.buildDirectory.file('launcher/launcher.jar')
 android {
     namespace 'com.saicmotor.media'
     compileSdk 34
@@ -23,6 +28,10 @@ android {
                 systemProperty 'robolectric.dependency.repo.url', 'https://maven-central.storage-download.googleapis.com/maven2/'
                 systemProperty 'roborazzi.test.record', 'true'
                 maxHeapSize = '3g'
+                if (launcherApk) {
+                    dependsOn 'launcherJar'
+                    systemProperty 'launcher.jar', launcherJar.get().asFile.path
+                }
             }
         }
     }
@@ -52,4 +61,15 @@ dependencies {
     testImplementation "androidx.test:core:1.5.0"
     testImplementation "androidx.test.ext:junit:1.1.5"
     testImplementation "io.github.takahirom.roborazzi:roborazzi:1.8.0"
+}
+
+configurations { dex2jar }
+dependencies { dex2jar "de.femtopedia.dex2jar:dex-tools:2.4.38" }
+tasks.register('launcherJar', JavaExec) {
+    onlyIf { launcherApk }
+    classpath = configurations.dex2jar
+    mainClass = 'com.googlecode.dex2jar.tools.Dex2jarCmd'
+    args '--force', '--output', launcherJar.get().asFile.path, launcherApk ?: 'none'
+    inputs.property 'apk', launcherApk ?: ''
+    outputs.file launcherJar
 }
