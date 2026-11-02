@@ -277,6 +277,7 @@ class StreamingTest {
         assertTrue("song 2 at $reached2 ms", reached2 < 13_000)
         assertHeardWhole(0)
         assertHeardWhole(2)
+        assertTrue("not asked for again and again: ${streamRequests(1).size}", streamRequests(1).size <= 2)
         assertEquals("nothing kept for it", 0L, MediaCache.cachedBytesFromStart(app, ids[1]))
         s.onDestroy()
     }
@@ -299,6 +300,45 @@ class StreamingTest {
         val p = s.player()
         assertEquals(listOf(ids[0], ids[1]), (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId })
         assertEquals("song 0 plays on", ids[0], p.currentMediaItem?.mediaId)
+        s.onDestroy()
+    }
+
+    /**
+     * The server refuses the login (the password was changed on it): the car
+     * says so and stays on the song — not skipping through the queue — and
+     * plays it once the new password is put in Settings.
+     */
+    @Test
+    fun aRefusedLoginIsShownAndPlaysOnceFixed() {
+        server.addSongs(2, seconds = 10)
+        server.password = "changed"
+        val s = startPlaying()
+        val first = "sub:" + server.songs.keys.first()
+        val songs = drive(s, 20_000)
+        assertEquals("stays on the song", listOf(first), songs.mapNotNull { it.second }.distinct())
+        assertTrue("nothing plays", heard.isEmpty())
+        val session = MediaService::class.java.getDeclaredField("session").apply { isAccessible = true }
+            .get(s) as android.support.v4.media.session.MediaSessionCompat
+        assertEquals(app.getString(com.saicmotor.media.R.string.error_auth_title),
+            session.controller.playbackState.errorMessage?.toString())
+        // Fixed in Settings (as the settings screen saves it).
+        SubsonicSettings.save(app, SubsonicSettings.Config(server.url, "me", "changed"))
+        com.saicmotor.media.subsonic.SubsonicClient.invalidateCache()
+        drive(s, 30_000, until = { heardAll(0) })
+        assertHeardWhole(0)
+        s.onDestroy()
+    }
+
+    /** Navidrome at its limit of transcodes ("429, try again in 5 s"): the song waits, then plays; nothing's skipped. */
+    @Test
+    fun aBusyServerIsWaitedFor() {
+        server.addSongs(2, seconds = 10)
+        server.plan = { song, attempt -> if (song == 0 && attempt <= 2) FakeNavidrome.Reply.Busy else FakeNavidrome.Reply.Whole }
+        val s = startPlaying()
+        drive(s, 60_000, until = { heardAll(1) })
+        assertHeardWhole(0)
+        assertHeardWhole(1)
+        assertEquals(3, streamRequests(0).size)
         s.onDestroy()
     }
 

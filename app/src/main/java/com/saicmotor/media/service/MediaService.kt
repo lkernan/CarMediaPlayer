@@ -303,6 +303,8 @@ class MediaService : MediaBrowserServiceCompat() {
         /** Stream failed for a reason other than the network: retry this many times, then skip. */
         private const val MAX_STREAM_RETRIES = 4
         private const val STREAM_RETRY_MS    = 3_000L
+        /** How often to try again after the server refused the login (it may have been fixed in Settings). */
+        private const val LOGIN_RETRY_MS     = 15_000L
         /** No network (tunnel, car park, modem still starting): keep trying this often… */
         private const val NETWORK_RETRY_MS   = 4_000L
         /** …for this long, rather than skipping songs that can't load either. */
@@ -350,6 +352,9 @@ class MediaService : MediaBrowserServiceCompat() {
     private var snapshotJob: Job? = null
 
     // ── No network ─────────────────────────────────────────────────────────
+
+    /** The server refused the login: shown as such, and tried again now and then. */
+    private var loginRefused = false
 
     /** Waiting for the network to come back (shown as "buffering", not an error). */
     private var networkWait = false
@@ -866,6 +871,7 @@ class MediaService : MediaBrowserServiceCompat() {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) {
                 streamRetries = 0
+                loginRefused = false
                 endNetworkWait()
             }
             session.setPlaybackState(buildPlaybackState())
@@ -1029,6 +1035,21 @@ class MediaService : MediaBrowserServiceCompat() {
                 return
             }
         }
+        if (refused?.loginRefused == true) {
+            // Nothing will play until the login is fixed in Settings: say so,
+            // rather than skipping through the queue, and try again now and
+            // then (each try with the login as it is then, see MediaCache).
+            if (!loginRefused) Log.w(TAG, "The server refused the login; waiting for it to be fixed in Settings")
+            loginRefused = true
+            endNetworkWait()
+            serviceScope.launch {
+                delay(LOGIN_RETRY_MS)
+                if (generation != queueGeneration || player.playerError == null) return@launch
+                player.prepare()
+                if (wanted) player.play()
+            }
+            return
+        }
         if (isNetworkError(error)) {
             startNetworkWait()
             return
@@ -1082,7 +1103,8 @@ class MediaService : MediaBrowserServiceCompat() {
             )
             .apply {
                 if (state == PlaybackStateCompat.STATE_ERROR) {
-                    setErrorMessage(PlaybackStateCompat.ERROR_CODE_UNKNOWN_ERROR, getString(R.string.error_stream))
+                    if (loginRefused) setErrorMessage(PlaybackStateCompat.ERROR_CODE_AUTHENTICATION_EXPIRED, getString(R.string.error_auth_title))
+                    else setErrorMessage(PlaybackStateCompat.ERROR_CODE_UNKNOWN_ERROR, getString(R.string.error_stream))
                 }
             }
             .build()
@@ -1723,13 +1745,18 @@ class MediaService : MediaBrowserServiceCompat() {
                         precacheWriter?.cancel()
                     }
                 }
+                val error = download.await()
                 when {
-                    download.await() -> {
+                    error == null -> {
                         precached += id
                         downloadFailures.remove(id)
                         Log.i(TAG, "Downloaded ahead: ${target.mediaMetadata.title}")
                     }
                     stopped -> Log.i(TAG, "Stopped downloading ahead: ${target.mediaMetadata.title} (skipped to, or no longer coming up)")
+                    generateSequence<Throwable>(error) { it.cause }.take(8).any { it is SongRefused && it.notFound } -> {
+                        downloadFailures[id] = MAX_DOWNLOAD_FAILURES   // not asked for again
+                        Log.i(TAG, "Not downloading ahead: ${target.mediaMetadata.title} (the server has no such song)")
+                    }
                     else -> {
                         downloadFailures[id] = (downloadFailures[id] ?: 0) + 1
                         Log.i(TAG, "Couldn't download ahead: ${target.mediaMetadata.title} — trying again shortly")
@@ -1740,13 +1767,13 @@ class MediaService : MediaBrowserServiceCompat() {
         }
     }
 
-    /** Downloads a song into the song cache (blocking; false if it failed or was stopped). */
-    private fun downloadAhead(mediaId: String, uri: Uri): Boolean =
+    /** Downloads a song into the song cache (blocking; what went wrong, or null if it's all there). */
+    private fun downloadAhead(mediaId: String, uri: Uri): Exception? =
         try {
             MediaCache.precache(this, mediaId, uri) { writer -> precacheWriter = writer }
-            true
-        } catch (_: Exception) {
-            false
+            null
+        } catch (e: Exception) {
+            e
         } finally {
             precacheWriter = null
         }

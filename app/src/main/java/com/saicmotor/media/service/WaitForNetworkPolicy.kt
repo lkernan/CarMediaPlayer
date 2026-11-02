@@ -25,10 +25,12 @@ import java.net.UnknownHostException
  * Here, when the problem is the connection itself, the player just keeps
  * trying every [NETWORK_RETRY_MS] while showing "buffering", so the song
  * starts within a second or two of the server being reachable.  A server
- * error (5xx: restarting) is waited out too.  A song the server says doesn't
- * exist is reported straight away, and the app skips it.  Anything else — an
- * error message instead of the song, or a song that can't be read — is
- * reported after a few tries, and the app retries or skips it.
+ * error (5xx: restarting), or the server being at its limit of transcodes
+ * (429), is waited out too.  A song the server says doesn't exist, or a login
+ * it refuses, is reported straight away (the app skips the song, or shows the
+ * login problem).  Anything else — another error message instead of the song,
+ * or a song that can't be read — is reported after a few tries, and the app
+ * retries or skips it.
  */
 @OptIn(UnstableApi::class)
 class WaitForNetworkPolicy : DefaultLoadErrorHandlingPolicy() {
@@ -37,10 +39,15 @@ class WaitForNetworkPolicy : DefaultLoadErrorHandlingPolicy() {
         val e = info.exception
         val httpCode = (e as? HttpDataSource.InvalidResponseCodeException)?.responseCode
         return when {
-            // The server says the song doesn't exist: the app skips it (see MediaService).
-            e is SongRefused && e.notFound -> C.TIME_UNSET
+            // The server says the song doesn't exist (the app skips it), or
+            // refused the login (the app shows that and waits): see MediaService.
+            e is SongRefused && (e.notFound || e.loginRefused) -> C.TIME_UNSET
             httpCode != null && httpCode >= 500 ->
                 if (info.errorCount > MAX_WAIT_RETRIES) C.TIME_UNSET else SERVER_RETRY_MS
+            // Navidrome is running as many transcodes as it's set to allow:
+            // it asks to be tried again in a few seconds.
+            httpCode == TOO_MANY_REQUESTS ->
+                if (info.errorCount > MAX_WAIT_RETRIES) C.TIME_UNSET else BUSY_RETRY_MS
             httpCode != null -> C.TIME_UNSET   // 4xx: missing / not allowed — no point waiting
             isConnectionProblem(e) ->
                 if (info.errorCount > MAX_WAIT_RETRIES) C.TIME_UNSET else NETWORK_RETRY_MS
@@ -55,6 +62,9 @@ class WaitForNetworkPolicy : DefaultLoadErrorHandlingPolicy() {
     companion object {
         const val NETWORK_RETRY_MS = 1_000L
         private const val SERVER_RETRY_MS = 3_000L
+        private const val TOO_MANY_REQUESTS = 429
+        /** What Navidrome asks for (Retry-After) when it's at its limit of transcodes. */
+        private const val BUSY_RETRY_MS = 5_000L
         /** About 15 minutes of no network before it's reported as an error. */
         private const val MAX_WAIT_RETRIES = 600
         private const val OTHER_RETRIES = 3

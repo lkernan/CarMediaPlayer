@@ -50,8 +50,9 @@ release (the alpha versions before it, 2.0–2.0.14, aren't kept).
 
 `tools/buildcheck` builds the app's sources with the same dependencies as
 `app/build.gradle` and runs the Robolectric tests in `tools/buildcheck/tests`
-(30 service tests, 8 streaming tests, 21 screenshot tests →
-`tools/buildcheck/app/build/shots`).
+(30 service tests, 10 streaming tests, 21 screenshot tests →
+`tools/buildcheck/app/build/shots`, and 7 against a real Navidrome, skipped
+unless one is running: `tools/navidrome/README.md`).
 Needs JDK 17, Gradle 8.x, Android SDK platform 34 + build-tools 34
 (`local.properties` with `sdk.dir=...`).
 
@@ -66,7 +67,7 @@ Keys: `platform.pk8` + `platform.x509.pem` from AOSP
 Signer SHA-256 must be `c8a2e9bccf597c2fb6dc66bee293fc13f2fc47ec77bc6b2b0d52c11f51192ab8`.
 Never commit keys (`app/keys/` is ignored).
 
-All three test classes must keep the same `@Config(sdk=[28], qualifiers=...,
+All the test classes must keep the same `@Config(sdk=[28], qualifiers=...,
 shadows=[InstantAudioTrack])`, or Robolectric fails with
 FileSystemAlreadyExistsException when run together.  Each test starts with a
 fresh song cache (`MediaCache` keeps one for the whole run).
@@ -79,6 +80,13 @@ exactly what was heard; `InstantAudioTrack` replaces Robolectric's AudioTrack,
 which calls a method Android 9 doesn't have and stops playback.  Media3 caches
 the decoder list, so it's cleared per test.  Positions follow real time while
 the looper follows the test's clock, so check packets heard, not positions.
+The test clock also runs faster than the server, so a song change can catch
+the look-ahead mid-download where in the car it wouldn't.
+
+`RealNavidromeTest` does the same against a real Navidrome 0.64.2 built from
+source (`tools/navidrome`), through a `Relay` that can break, slow or cut off
+the connection.  Run it with `--rerun` (Gradle doesn't notice the
+environment) and a freshly started server (empty transcoding cache).
 
 ## How the car talks to the app (learned from the firmware)
 
@@ -155,13 +163,24 @@ the looper follows the test's clock, so check packets heard, not positions.
   **Don't set a custom User-Agent** on stream requests: it creates a new
   player with no transcoding (FLAC).  Cache key is `song-v2:<id>` for that reason.
 - Transcoded streams have no Content-Length and don't support ranges: every
-  request transcodes from the start.  ffmpeg makes the same bytes each time
-  but for the Ogg serial number and page checksums (nothing checks them), so
-  a song picked up part-way joins cleanly.
+  request transcodes from the start.  A song played again comes from
+  Navidrome's transcoding cache (100 MB by default) with its length, and
+  ranges work; it keeps transcoding into that cache after the app hangs up
+  (unless a transcode limit or `Transcoding.EnableCancellation` is set).
+  ffmpeg makes the same bytes each time but for the Ogg serial number and
+  page checksums (nothing checks them), so a song picked up part-way joins
+  cleanly.
 - Errors, "song not found" (70) included, come as HTTP 200 with a JSON body.
   `SongReplies` turns a reply that isn't audio into `SongRefused` before the
   cache sees it (it used to be cached as the song).  A song not found is
-  skipped at once, or taken out of the queue if it's a later one.
+  skipped at once, or taken out of the queue if it's a later one, and the
+  look-ahead doesn't ask for it again.  A refused login (40–44, 50) is shown
+  as such and tried again every 15 s, not skipped through.
+- Song addresses in the queue carry the login, so every song request is given
+  the server and login from Settings as they are then (`MediaCache`): a
+  changed password works without starting a new queue.
+- With `Transcoding.MaxConcurrent(PerUser)` set, Navidrome answers "429, try
+  again in 5 s"; the player waits and tries again (`WaitForNetworkPolicy`).
 - Navidrome only draws a couple of covers at a time and answers "429 Too
   Many Requests" when too many arrive at once (the album grids).  The image
   loader asks again after 0.5 s and 1.5 s (`data/RetryWhenBusy.kt`), and a

@@ -20,6 +20,13 @@ class SongRefused(val songId: String?, val code: Int, message: String) : IOExcep
     /** The server says there's no such song (Subsonic error 70): asking again won't help. */
     val notFound: Boolean get() = code == NOT_FOUND
 
+    /**
+     * The server refused the login (40 wrong username or password, 41–44 a
+     * login method it won't take, 50 not allowed): nothing plays until it's
+     * fixed in Settings.
+     */
+    val loginRefused: Boolean get() = code in 40..44 || code == 50
+
     companion object {
         private const val NOT_FOUND = 70
 

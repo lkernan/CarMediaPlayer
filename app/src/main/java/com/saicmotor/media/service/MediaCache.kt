@@ -7,12 +7,15 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSink
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import com.saicmotor.media.data.Storage
+import com.saicmotor.media.data.SubsonicSettings
+import com.saicmotor.media.subsonic.SubsonicClient
 import java.io.File
 
 /**
@@ -63,10 +66,11 @@ object MediaCache {
     /** Where the player reads songs from: the cache, falling back to the server. */
     fun dataSourceFactory(context: Context): CacheDataSource.Factory {
         val cache = cache(context)
+        val app = context.applicationContext
         return CacheDataSource.Factory()
             .setCache(cache)
             .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(cache).setFragmentSize(PIECE_BYTES))
-            .setUpstreamDataSourceFactory(
+            .setUpstreamDataSourceFactory(ResolvingDataSource.Factory(
                 // An error message in place of the song is never saved as the song (see SongReplies).
                 SongReplies.Factory(
                     // No User-Agent of our own: Navidrome treats each client name +
@@ -82,8 +86,22 @@ object MediaCache {
                         .setConnectTimeoutMs(6_000)
                         .setReadTimeoutMs(15_000)
                 )
-            )
+            ) { dataSpec -> dataSpec.withUri(withCurrentLogin(app, dataSpec.uri)) })
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+    }
+
+    /**
+     * A song's address with the server and login from Settings as they are
+     * now.  The address of every song in the queue carries the login as it
+     * was when the queue was made, so after the password (or the server's
+     * address) was changed, the queue kept failing until something else was
+     * played.
+     */
+    private fun withCurrentLogin(context: Context, uri: Uri): Uri {
+        if (uri.path?.endsWith("/rest/stream") != true) return uri
+        val id = uri.getQueryParameter("id") ?: return uri
+        val cfg = SubsonicSettings.load(context).takeIf { it.isValid } ?: return uri
+        return Uri.parse(SubsonicClient.streamUrl(cfg, id))
     }
 
     /** How much of the song is on disk (0–1), or null if it's never been fetched. */

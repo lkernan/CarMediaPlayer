@@ -48,6 +48,8 @@ class FakeNavidrome : AutoCloseable {
         data class Status(val code: Int) : Reply()
         /** A Subsonic error (HTTP 200, JSON body), e.g. 70 not found, 40 wrong password. */
         data class SubsonicError(val code: Int, val message: String) : Reply()
+        /** At its limit of transcodes running at once (Navidrome's Transcoding.MaxConcurrent): 429, try again in 5 s. */
+        object Busy : Reply() { override fun toString() = "Busy" }
     }
 
     data class Request(val endpoint: String, val params: Map<String, String>, val range: String?) {
@@ -59,6 +61,8 @@ class FakeNavidrome : AutoCloseable {
     val songs = LinkedHashMap<String, Song>()
     val requests = CopyOnWriteArrayList<Request>()
     @Volatile var transcodeCached = false
+    /** The password it takes (the app logs in as "me" with a token made from it). */
+    @Volatile var password = "secret"
     /** 0 = as fast as it can; otherwise a slow link, shared by every connection (like one mobile signal). */
     @Volatile var bytesPerSecond = 0
     private val link = Any()
@@ -128,6 +132,7 @@ class FakeNavidrome : AutoCloseable {
         val request = Request(endpoint, params, range)
         requests += request
         val out = socket.getOutputStream()
+        if (!loginOk(params)) return json(out, error(40, "Wrong username or password"))
         when (endpoint) {
             "stream" -> stream(socket, out, params["id"].orEmpty(), range, request)
             "ping", "scrobble" -> json(out, "")
@@ -138,6 +143,13 @@ class FakeNavidrome : AutoCloseable {
                 songs.values.joinToString(",") { songJson(it) } + "]}")
             else -> json(out, error(70, "Not here"))
         }
+    }
+
+    private fun loginOk(params: Map<String, String>): Boolean {
+        params["p"]?.let { return it == password }
+        val salt = params["s"] ?: return false
+        val md5 = java.security.MessageDigest.getInstance("MD5").digest((password + salt).toByteArray())
+        return params["t"] == md5.joinToString("") { "%02x".format(it) }
     }
 
     private fun songJson(s: Song) =
@@ -165,6 +177,12 @@ class FakeNavidrome : AutoCloseable {
                 return out.flush()
             }
             is Reply.SubsonicError -> return json(out, error(reply.code, reply.message))
+            is Reply.Busy -> {
+                val body = "{\"subsonic-response\":{\"status\":\"failed\",\"error\":{\"code\":0,\"message\":\"too many concurrent transcodes\"}}}".toByteArray()
+                out.write("HTTP/1.1 429 Too Many Requests\r\nRetry-After: 5\r\nContent-Type: application/json\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                out.write(body)
+                return out.flush()
+            }
             else -> {}
         }
         if (transcodeCached) {

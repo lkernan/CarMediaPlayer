@@ -153,6 +153,7 @@ class ServiceTest {
             }
         }.apply { start() }
         val cfg = SubsonicSettings.Config("http://127.0.0.1:${server.localPort}", "me", "secret")
+        SubsonicSettings.save(app, cfg)
         com.saicmotor.media.subsonic.SubsonicClient.ping(cfg)
         val uri = android.net.Uri.parse(com.saicmotor.media.subsonic.SubsonicClient.streamUrl(cfg, "x"))
         com.saicmotor.media.service.MediaCache.precache(app, "sub:x", uri) { }
