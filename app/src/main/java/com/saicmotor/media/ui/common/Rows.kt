@@ -26,6 +26,7 @@ import com.saicmotor.media.subsonic.SubsonicAlbum
 import com.saicmotor.media.subsonic.SubsonicArtist
 import com.saicmotor.media.subsonic.SubsonicGenre
 import com.saicmotor.media.subsonic.SubsonicSong
+import com.saicmotor.media.subsonic.SubsonicPlaylist
 
 /** A button on a page header or the Home hero row. */
 data class PageButton(val id: String, val label: String, @DrawableRes val icon: Int)
@@ -48,13 +49,17 @@ sealed class Row {
         val showCover: Boolean,
         val round:    Boolean,
         val primary:  PageButton?,
-        val secondary: PageButton?
+        val secondary: PageButton?,
+        val tertiary: PageButton? = null
     ) : Row() { override val key = "header" }
 
     data class Album(val album: SubsonicAlbum, val subtitle: String? = album.artist) : Row() {
         override val key = "album:${album.id}"
     }
     data class Artist(val artist: SubsonicArtist) : Row() { override val key = "artist:${artist.id}" }
+    data class Playlist(val playlist: SubsonicPlaylist, val subtitle: String? = null) : Row() {
+        override val key = "playlist:${playlist.id}"
+    }
     data class Genre(val genre: SubsonicGenre) : Row() { override val key = "genre:${genre.name}" }
 
     /** A song in a list; tapping plays [parentId] from this song. */
@@ -80,6 +85,7 @@ sealed class Row {
 interface RowActions {
     fun onAlbum(album: SubsonicAlbum)
     fun onArtist(artist: SubsonicArtist)
+    fun onPlaylist(playlist: SubsonicPlaylist)
     fun onGenre(genre: SubsonicGenre)
     fun onTrack(row: Row.Track)
     fun onQueued(entry: QueueEntry) {}
@@ -116,7 +122,7 @@ class RowsAdapter(
         is Row.Message  -> T_MESSAGE
         is Row.Hero     -> T_HERO
         is Row.Header   -> T_HEADER
-        is Row.Album, is Row.Artist -> T_CARD
+        is Row.Album, is Row.Artist, is Row.Playlist -> T_CARD
         is Row.Genre    -> T_GENRE
         is Row.Track, is Row.Queued -> T_TRACK
         is Row.Shelf    -> T_SHELF
@@ -201,6 +207,8 @@ class RowsAdapter(
             row.primary?.let { b.primary.bindButton(it) }
             b.secondary.visibility = if (row.secondary != null) View.VISIBLE else View.GONE
             row.secondary?.let { b.secondary.bindButton(it) }
+            b.tertiary.visibility = if (row.tertiary != null) View.VISIBLE else View.GONE
+            row.tertiary?.let { b.tertiary.bindButton(it) }
         }
     }
 
@@ -231,6 +239,15 @@ class RowsAdapter(
                     b.title.gravity = android.view.Gravity.CENTER_HORIZONTAL
                     b.subtitle.gravity = android.view.Gravity.CENTER_HORIZONTAL
                     b.root.setOnClickListener { actions.onArtist(row.artist) }
+                }
+                is Row.Playlist -> {
+                    b.cover.shapeAppearanceModel = shape(ctx, false)
+                    b.cover.loadCover(Library.coverUrl(row.playlist.coverArt), R.drawable.cover_placeholder)
+                    b.title.text = row.playlist.name
+                    b.subtitle.text = row.subtitle
+                    b.title.gravity = android.view.Gravity.START
+                    b.subtitle.gravity = android.view.Gravity.START
+                    b.root.setOnClickListener { actions.onPlaylist(row.playlist) }
                 }
                 else -> Unit
             }
@@ -339,7 +356,7 @@ class RowsAdapter(
         const val GRID_SPANS = 60
 
         fun spanFor(row: Row, cardsPerRow: Int, tilesPerRow: Int): Int = when (row) {
-            is Row.Album, is Row.Artist -> GRID_SPANS / cardsPerRow
+            is Row.Album, is Row.Artist, is Row.Playlist -> GRID_SPANS / cardsPerRow
             is Row.Genre -> GRID_SPANS / tilesPerRow
             else -> GRID_SPANS
         }

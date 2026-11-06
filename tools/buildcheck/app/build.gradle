@@ -16,7 +16,7 @@ def launcherJar = layout.buildDirectory.file('launcher/launcher.jar')
 android {
     namespace 'com.saicmotor.media'
     compileSdk 34
-    defaultConfig { applicationId "com.saicmotor.media"; minSdk 27; targetSdk 28; versionCode 2000000028; versionName "1.0.10" }
+    defaultConfig { applicationId "com.saicmotor.media"; minSdk 27; targetSdk 28; versionCode 2000000029; versionName "1.0.11" }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
     kotlinOptions { jvmTarget = '1.8' }
     buildFeatures { viewBinding true }

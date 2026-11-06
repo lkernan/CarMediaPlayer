@@ -71,6 +71,12 @@
                 style="@style/PillButton.Quiet"
                 android:layout_width="wrap_content"
                 android:layout_marginStart="@dimen/space_m"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tertiary"
+                style="@style/PillButton.Quiet"
+                android:layout_width="wrap_content"
+                android:layout_marginStart="@dimen/space_m"/>
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

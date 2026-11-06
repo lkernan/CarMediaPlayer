@@ -18,6 +18,7 @@ import com.saicmotor.media.R
 import com.saicmotor.media.subsonic.SubsonicAlbum
 import com.saicmotor.media.subsonic.SubsonicArtist
 import com.saicmotor.media.subsonic.SubsonicGenre
+import com.saicmotor.media.subsonic.SubsonicPlaylist
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -129,6 +130,7 @@ abstract class RowsPageFragment : Fragment(), RowActions {
 
     override fun onAlbum(album: SubsonicAlbum)          = navigator.openAlbum(album.id)
     override fun onArtist(artist: SubsonicArtist)       = navigator.openArtist(artist.id)
+    override fun onPlaylist(playlist: SubsonicPlaylist) = navigator.openPlaylist(playlist.id)
     override fun onGenre(genre: SubsonicGenre)          = navigator.openGenre(genre.name)
     override fun onTrack(row: Row.Track)                = Playback.playFrom(row.parentId, row.song.id)
     override fun onHeaderSubtitle(artistId: String)     = navigator.openArtist(artistId)

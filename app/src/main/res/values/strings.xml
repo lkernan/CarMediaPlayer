@@ -33,6 +33,24 @@
     <string name="segment_albums">Albums</string>
     <string name="segment_artists">Artists</string>
     <string name="segment_genres">Genres</string>
+    <string name="segment_playlists">Playlists</string>
+    <string name="playlist_song_count">%1$d tracks</string>
+    <string name="offline_button">Offline</string>
+    <string name="offline_download_action">Download playlist to this car</string>
+    <string name="offline_remove_action">Remove offline copy</string>
+    <string name="offline_usb_action">Sync playlist to a USB drive</string>
+    <string name="offline_picker_title">Choose the USB drive</string>
+    <string name="offline_progress">Downloading tracks: %1$d / %2$d</string>
+    <string name="offline_saved">Playlist is available offline</string>
+    <string name="offline_removed">Offline playlist removed</string>
+    <string name="offline_usb_done">Playlist synced to USB</string>
+    <string name="offline_failed">Offline download failed</string>
+    <string name="offline_usb_failed">USB sync failed</string>
+    <string name="playlist_offline_badge">Available offline</string>
+    <string name="browse_shuffle_all">Shuffle all</string>
+    <string name="disc_number">Disc %1$d</string>
+    <string name="notification_channel_name">Media playback</string>
+    <string name="notification_channel_description">Media playback controls</string>
 
     <!-- Detail pages -->
     <plurals name="songs">
@@ -72,6 +90,9 @@
     <string name="error_server_title">Navidrome returned an error</string>
 
     <!-- Settings -->
+    <string name="settings_language">Language</string>
+    <string name="language_english">English</string>
+    <string name="language_french">Français</string>
     <string name="settings_server">Navidrome server</string>
     <string name="settings_url">Server address</string>
     <string name="settings_url_hint">https://music.example.com</string>

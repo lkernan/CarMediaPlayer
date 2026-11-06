@@ -19,6 +19,64 @@
             android:layout_height="wrap_content"
             android:paddingTop="@dimen/space_xs"
             android:layout_marginBottom="@dimen/space_s"
+            android:text="@string/settings_language"
+            android:textAppearance="@style/Text.Heading"/>
+
+        <LinearLayout
+            android:id="@+id/language_english"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="72dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:background="@drawable/row_background"
+            android:clickable="true"
+            android:focusable="true">
+            <View
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:duplicateParentState="true"
+                android:background="@drawable/radio_indicator"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="28dp"
+                android:text="@string/language_english"
+                android:textAppearance="@style/Text.Body"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/language_french"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="72dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:background="@drawable/row_background"
+            android:clickable="true"
+            android:focusable="true">
+            <View
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:duplicateParentState="true"
+                android:background="@drawable/radio_indicator"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="28dp"
+                android:text="@string/language_french"
+                android:textAppearance="@style/Text.Body"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_xl"
+            android:layout_marginBottom="@dimen/space_s"
             android:text="@string/settings_startup"
             android:textAppearance="@style/Text.Heading"/>
 

@@ -8,6 +8,8 @@ import com.saicmotor.media.subsonic.SubsonicArtist
 import com.saicmotor.media.subsonic.SubsonicArtistDetail
 import com.saicmotor.media.subsonic.SubsonicClient
 import com.saicmotor.media.subsonic.SubsonicGenre
+import com.saicmotor.media.subsonic.SubsonicPlaylist
+import com.saicmotor.media.subsonic.SubsonicPlaylistDetail
 import com.saicmotor.media.subsonic.SubsonicResults
 import com.saicmotor.media.subsonic.SubsonicServerInfo
 import kotlinx.coroutines.CoroutineDispatcher
@@ -28,6 +30,10 @@ interface LibrarySource {
     fun album(id: String): SubsonicAlbumDetail
     fun genres(): List<SubsonicGenre>
     fun genreAlbums(genre: String): List<SubsonicAlbum>
+    fun playlists(): List<SubsonicPlaylist> = emptyList()
+    fun playlist(id: String): SubsonicPlaylistDetail =
+        throw com.saicmotor.media.subsonic.SubsonicException(
+            com.saicmotor.media.subsonic.SubsonicException.Kind.SERVER, "Playlist not found")
     fun search(query: String): SubsonicResults
     fun ping(): SubsonicServerInfo
 }
@@ -53,6 +59,8 @@ class SubsonicLibrarySource(context: Context) : LibrarySource {
     override fun album(id: String) = SubsonicClient.getAlbum(cfg, id)
     override fun genres() = SubsonicClient.getGenres(cfg)
     override fun genreAlbums(genre: String) = SubsonicClient.getAllAlbums(cfg, "byGenre", genre)
+    override fun playlists() = SubsonicClient.getPlaylists(cfg)
+    override fun playlist(id: String) = SubsonicClient.getPlaylist(cfg, id)
     override fun search(query: String) = SubsonicClient.search(cfg, query)
     override fun ping() = SubsonicClient.ping(cfg)
 }

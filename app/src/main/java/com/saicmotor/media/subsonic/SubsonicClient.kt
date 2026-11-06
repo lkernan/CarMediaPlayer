@@ -5,6 +5,7 @@ import com.saicmotor.media.data.SubsonicSettings
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -41,7 +42,9 @@ data class SubsonicSong(
     val albumId:    String? = null,
     val artistId:   String? = null,
     val track:      Int     = 0,
-    val disc:       Int     = 0
+    val disc:       Int     = 0,
+    val suffix:     String? = null,
+    val sizeBytes:  Long    = 0L
 )
 
 data class SubsonicGenre(
@@ -49,6 +52,19 @@ data class SubsonicGenre(
     val albumCount: Int,
     val songCount:  Int
 )
+
+data class SubsonicPlaylist(
+    val id: String,
+    val name: String,
+    val owner: String?,
+    val comment: String?,
+    val songCount: Int,
+    val durationSec: Int,
+    val changed: String?,
+    val coverArt: String?
+)
+
+data class SubsonicPlaylistDetail(val playlist: SubsonicPlaylist, val songs: List<SubsonicSong>)
 
 /** Results of `search3`: all three kinds. */
 data class SubsonicResults(
@@ -213,6 +229,62 @@ object SubsonicClient {
             )
         }.filter { it.name.isNotBlank() }
 
+    fun getPlaylists(cfg: SubsonicSettings.Config): List<SubsonicPlaylist> =
+        fetch(cfg, "getPlaylists").optJSONObject("playlists")?.optJSONArray("playlist")
+            .mapObjects(::parsePlaylist)
+
+    fun getPlaylist(cfg: SubsonicSettings.Config, playlistId: String): SubsonicPlaylistDetail {
+        val p = fetch(cfg, "getPlaylist", "id" to playlistId).optJSONObject("playlist")
+            ?: throw SubsonicException(SubsonicException.Kind.SERVER, "Playlist not found")
+        val playlist = parsePlaylist(p)
+        return SubsonicPlaylistDetail(playlist, p.optJSONArray("entry").mapObjects(::parseSong))
+    }
+
+    /** Streams the original song file to [output] for a removable-drive copy. */
+    fun download(cfg: SubsonicSettings.Config, songId: String, output: OutputStream): Long {
+        if (!cfg.isValid) throw SubsonicException(SubsonicException.Kind.NOT_CONFIGURED, "Server not set up")
+        val url = "${cfg.url}/rest/download?${authParams(cfg)}&id=${enc(songId)}"
+        val connection = try { URL(url).openConnection() as HttpURLConnection }
+        catch (_: Exception) { throw SubsonicException(SubsonicException.Kind.NETWORK, "Couldn't reach the server") }
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 60_000
+        connection.requestMethod = "GET"
+        try {
+            if (connection.responseCode == 401 || connection.responseCode == 403) {
+                throw SubsonicException(SubsonicException.Kind.AUTH, "The server refused the username or password")
+            }
+            val type = connection.contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+            val count = connection.inputStream.use { input ->
+                if (type == "application/json" || type == "application/xml" || type.startsWith("text/")) {
+                    val body = input.bufferedReader().readText()
+                    val root = runCatching { JSONObject(body).getJSONObject("subsonic-response") }.getOrNull()
+                    val error = root?.optJSONObject("error")
+                    if (error != null) throwSubsonicError(error)
+                    throw SubsonicException(SubsonicException.Kind.SERVER, "The server returned an invalid audio file")
+                }
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var total = 0L
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    output.write(buffer, 0, n)
+                    total += n
+                }
+                total
+            }
+            if (count == 0L) throw SubsonicException(SubsonicException.Kind.SERVER, "The server returned an empty audio file")
+            output.flush()
+            return count
+        } catch (e: SubsonicException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "download failed: ${e.javaClass.simpleName}")
+            throw SubsonicException(SubsonicException.Kind.NETWORK, "Couldn't download the song")
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     /** Random songs from the whole library, or one genre (Navidrome caps [size] at 500). */
     fun getRandomSongs(cfg: SubsonicSettings.Config, size: Int, genre: String? = null): List<SubsonicSong> {
         val params = mutableListOf("size" to size.toString())
@@ -259,6 +331,17 @@ object SubsonicClient {
         durationSec = a.optInt("duration", 0)
     )
 
+    private fun parsePlaylist(p: JSONObject) = SubsonicPlaylist(
+        id = p.getString("id"),
+        name = p.str("name") ?: "?",
+        owner = p.str("owner"),
+        comment = p.str("comment"),
+        songCount = p.optInt("songCount", 0),
+        durationSec = p.optInt("duration", 0),
+        changed = p.str("changed"),
+        coverArt = p.str("coverArt")
+    )
+
     private fun parseSong(s: JSONObject) = SubsonicSong(
         id         = s.getString("id"),
         title      = s.optString("title", "?"),
@@ -269,7 +352,9 @@ object SubsonicClient {
         albumId    = s.str("albumId"),
         artistId   = s.str("artistId"),
         track      = s.optInt("track", 0),
-        disc       = s.optInt("discNumber", 0)
+        disc       = s.optInt("discNumber", 0),
+        suffix     = s.str("suffix"),
+        sizeBytes  = s.optLong("size", 0L)
     )
 
     private fun parseResults(o: JSONObject?) = SubsonicResults(
@@ -342,6 +427,14 @@ object SubsonicClient {
         val message = error?.optString("message").orEmpty()
         Log.w(TAG, "$endpoint: error $code $message")
         // 40 = wrong username or password, 41 = token auth not supported, 50 = not authorised
+        val kind = if (code == 40 || code == 41 || code == 50) SubsonicException.Kind.AUTH
+                   else SubsonicException.Kind.SERVER
+        throw SubsonicException(kind, message.ifBlank { "The server returned error $code" })
+    }
+
+    private fun throwSubsonicError(error: JSONObject): Nothing {
+        val code = error.optInt("code", 0)
+        val message = error.optString("message").orEmpty()
         val kind = if (code == 40 || code == 41 || code == 50) SubsonicException.Kind.AUTH
                    else SubsonicException.Kind.SERVER
         throw SubsonicException(kind, message.ifBlank { "The server returned error $code" })

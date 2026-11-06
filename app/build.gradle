@@ -14,8 +14,8 @@ android {
         // Must stay above the stock media app and earlier builds, or Android
         // refuses the update.  The build that installed on the MG4 used
         // 2000000000 (upstream uses 1); later builds count up from there.
-        versionCode    2000000028
-        versionName    "1.0.10"
+        versionCode    2000000029
+        versionName    "1.0.11"
     }
 
     compileOptions {

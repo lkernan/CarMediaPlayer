@@ -51,6 +51,7 @@ import coil.request.ImageRequest
 import com.saicmotor.common.CommandParcelable
 import com.saicmotor.media.R
 import com.saicmotor.media.data.PlaybackSettings
+import com.saicmotor.media.data.OfflinePlaylistStore
 import com.saicmotor.media.data.SubsonicSettings
 import com.saicmotor.media.subsonic.SubsonicAlbum
 import com.saicmotor.media.subsonic.SubsonicClient
@@ -83,7 +84,7 @@ import kotlin.random.Random
 class MediaService : MediaBrowserServiceCompat() {
 
     /** A top-level browse node for external clients such as the launcher. */
-    private data class Category(val id: String, val label: String, val playable: Boolean = false)
+    private data class Category(val id: String, val label: Int, val playable: Boolean = false)
 
     companion object {
         const val ROOT_ID     = "root"
@@ -104,7 +105,9 @@ class MediaService : MediaBrowserServiceCompat() {
         const val RECENT_ID      = "$ONLINE_ROOT/recent"
         const val FREQUENT_ID    = "$ONLINE_ROOT/frequent"
         const val GENRES_ID      = "$ONLINE_ROOT/genres"
+        const val PLAYLISTS_ID   = "$ONLINE_ROOT/playlists"
         private const val ALBUM_PREFIX        = "$ONLINE_ROOT/album/"
+        private const val PLAYLIST_PREFIX     = "$ONLINE_ROOT/playlist/"
         private const val ARTIST_PREFIX       = "$ONLINE_ROOT/artist/"
         private const val ARTIST_SONGS_PREFIX = "$ONLINE_ROOT/artistsongs/"
         private const val GENRE_PREFIX        = "$ONLINE_ROOT/genre/"
@@ -112,6 +115,7 @@ class MediaService : MediaBrowserServiceCompat() {
         private const val SEARCH_PREFIX       = "$ONLINE_ROOT/search/"
 
         fun albumNodeId(id: String)        = ALBUM_PREFIX + id
+        fun playlistNodeId(id: String)     = PLAYLIST_PREFIX + id
         fun artistNodeId(id: String)       = ARTIST_PREFIX + id
         /** Every song by an artist, album by album (playable children). */
         fun artistSongsNodeId(id: String)  = ARTIST_SONGS_PREFIX + id
@@ -123,13 +127,14 @@ class MediaService : MediaBrowserServiceCompat() {
         fun songMediaId(songId: String) = SUBSONIC_SONG_PREFIX + songId
 
         private val CATEGORIES = listOf(
-            Category(SHUFFLE_ALL_ID, "Shuffle all", playable = true),
-            Category(RECENT_ID,      "Recently played"),
-            Category(NEWEST_ID,      "Recently added"),
-            Category(FREQUENT_ID,    "Most played"),
-            Category(ARTISTS_ID,     "Artists"),
-            Category(ALBUMS_ID,      "Albums"),
-            Category(GENRES_ID,      "Genres")
+            Category(SHUFFLE_ALL_ID, R.string.browse_shuffle_all, playable = true),
+            Category(RECENT_ID,      R.string.shelf_recent),
+            Category(NEWEST_ID,      R.string.shelf_newest),
+            Category(FREQUENT_ID,    R.string.shelf_frequent),
+            Category(ARTISTS_ID,     R.string.segment_artists),
+            Category(ALBUMS_ID,      R.string.segment_albums),
+            Category(GENRES_ID,      R.string.segment_genres),
+            Category(PLAYLISTS_ID,   R.string.segment_playlists)
         )
 
         // ── Commands (startService intents: notification, widgets, boot) ───
@@ -2466,6 +2471,23 @@ class MediaService : MediaBrowserServiceCompat() {
     private suspend fun loadChildren(parentId: String): MutableList<MediaBrowserCompat.MediaItem> =
         withContext(Dispatchers.IO) {
             if (parentId == ROOT_ID || parentId == ONLINE_ROOT) return@withContext categoryItems()
+            if (parentId.startsWith(PLAYLIST_PREFIX)) {
+                val id = parentId.removePrefix(PLAYLIST_PREFIX)
+                val offline = OfflinePlaylistStore.get(this@MediaService, id)
+                val cfg = subsonicCfg()
+                if (cfg == null || !networkAvailable())
+                    return@withContext offline?.let { songItems(cfg, it.songs) } ?: mutableListOf()
+                try {
+                    return@withContext songItems(cfg, SubsonicClient.getPlaylist(cfg, id).songs)
+                } catch (e: SubsonicException) {
+                    if (offline != null) {
+                        Log.i(TAG, "Using the offline copy of playlist $id")
+                        return@withContext songItems(cfg, offline.songs)
+                    }
+                    Log.w(TAG, "Couldn't load playlist $id: ${e.kind}")
+                    return@withContext mutableListOf()
+                }
+            }
             val cfg = subsonicCfg() ?: return@withContext mutableListOf()
             try {
                 when {
@@ -2479,8 +2501,14 @@ class MediaService : MediaBrowserServiceCompat() {
                     parentId == GENRES_ID    -> SubsonicClient.getGenres(cfg)
                         .filter { it.albumCount > 0 }
                         .sortedBy { it.name.lowercase() }
-                        .map { g -> browsable(genreNodeId(g.name), g.name, "${g.albumCount} albums") }
+                        .map { g -> browsable(genreNodeId(g.name), g.name,
+                            resources.getQuantityString(R.plurals.albums, g.albumCount, g.albumCount)) }
                         .toMutableList()
+                    parentId == PLAYLISTS_ID -> SubsonicClient.getPlaylists(cfg).map { p ->
+                        browsable(playlistNodeId(p.id), p.name, getString(R.string.playlist_song_count, p.songCount), cover(cfg, p.coverArt))
+                    }.toMutableList()
+                    parentId.startsWith(PLAYLIST_PREFIX) ->
+                        songItems(cfg, SubsonicClient.getPlaylist(cfg, parentId.removePrefix(PLAYLIST_PREFIX)).songs)
                     parentId.startsWith(ALBUM_PREFIX) ->
                         songItems(cfg, SubsonicClient.getAlbum(cfg, parentId.removePrefix(ALBUM_PREFIX)).songs)
                     parentId.startsWith(ARTIST_SONGS_PREFIX) ->
@@ -2495,7 +2523,7 @@ class MediaService : MediaBrowserServiceCompat() {
                         val query = Uri.decode(parentId.removePrefix(SEARCH_PREFIX)).trim()
                         if (query.isEmpty()) mutableListOf() else {
                             val found = SubsonicClient.search(cfg, query)
-                            (found.artists.map { a -> browsable(artistNodeId(a.id), a.name, "Artist", cover(cfg, a.coverArt)) } +
+                            (found.artists.map { a -> browsable(artistNodeId(a.id), a.name, getString(R.string.segment_artists), cover(cfg, a.coverArt)) } +
                              albumItems(cfg, found.albums) + songItems(cfg, found.songs)).toMutableList()
                         }
                     }
@@ -2518,7 +2546,7 @@ class MediaService : MediaBrowserServiceCompat() {
     private fun categoryItems(): MutableList<MediaBrowserCompat.MediaItem> =
         CATEGORIES.map { c ->
             MediaBrowserCompat.MediaItem(
-                MediaDescriptionCompat.Builder().setMediaId(c.id).setTitle(c.label).build(),
+                MediaDescriptionCompat.Builder().setMediaId(c.id).setTitle(getString(c.label)).build(),
                 if (c.playable) MediaBrowserCompat.MediaItem.FLAG_PLAYABLE
                 else            MediaBrowserCompat.MediaItem.FLAG_BROWSABLE
             )
@@ -2540,12 +2568,13 @@ class MediaService : MediaBrowserServiceCompat() {
     private fun albumItems(cfg: SubsonicSettings.Config, albums: List<SubsonicAlbum>) =
         albums.map { a -> browsable(albumNodeId(a.id), a.name, a.artist, cover(cfg, a.coverArt)) }.toMutableList()
 
-    private fun songItems(cfg: SubsonicSettings.Config, songs: List<SubsonicSong>): MutableList<MediaBrowserCompat.MediaItem> =
+    private fun songItems(cfg: SubsonicSettings.Config?, songs: List<SubsonicSong>): MutableList<MediaBrowserCompat.MediaItem> =
         songs.map { song ->
-            val artUrl = song.coverArt?.let { SubsonicClient.coverArtUrl(cfg, it, NOW_PLAYING_ART_PX) }
+            val artUrl = if (cfg == null) null else song.coverArt?.let { SubsonicClient.coverArtUrl(cfg, it, NOW_PLAYING_ART_PX) }
             val extras = Bundle().apply {
                 putLong(X_DURATION,    song.durationMs)
-                putString(X_STREAM,    SubsonicClient.streamUrl(cfg, song.id))
+                putString(X_STREAM,    cfg?.let { SubsonicClient.streamUrl(it, song.id) }
+                    ?: "https://offline.invalid/rest/stream?id=${Uri.encode(song.id)}")
                 putString(X_TITLE,     song.title)
                 putString(X_ARTIST,    song.artist ?: "")
                 putString(X_ALBUM,     song.album  ?: "")
@@ -2557,7 +2586,7 @@ class MediaService : MediaBrowserServiceCompat() {
                 MediaDescriptionCompat.Builder()
                     .setMediaId(songMediaId(song.id))
                     .setTitle(song.title).setSubtitle(song.artist)
-                    .apply { song.coverArt?.let { setIconUri(Uri.parse(SubsonicClient.coverArtUrl(cfg, it))) } }
+                    .apply { cfg?.let { server -> song.coverArt?.let { setIconUri(Uri.parse(SubsonicClient.coverArtUrl(server, it))) } } }
                     .setExtras(extras).build(),
                 MediaBrowserCompat.MediaItem.FLAG_PLAYABLE
             )
@@ -2620,8 +2649,8 @@ class MediaService : MediaBrowserServiceCompat() {
         )
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "Media Playback", NotificationManager.IMPORTANCE_LOW)
-            .apply { description = "Media playback controls"; setShowBadge(false) }
+        val channel = NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_LOW)
+            .apply { description = getString(R.string.notification_channel_description); setShowBadge(false) }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 }

@@ -23,6 +23,7 @@
             <TextView android:id="@+id/seg_albums"    style="@style/Segment" android:text="@string/segment_albums"/>
             <TextView android:id="@+id/seg_artists"   style="@style/Segment" android:text="@string/segment_artists"/>
             <TextView android:id="@+id/seg_genres"    style="@style/Segment" android:text="@string/segment_genres"/>
+            <TextView android:id="@+id/seg_playlists" style="@style/Segment" android:text="@string/segment_playlists"/>
         </LinearLayout>
     </HorizontalScrollView>
 

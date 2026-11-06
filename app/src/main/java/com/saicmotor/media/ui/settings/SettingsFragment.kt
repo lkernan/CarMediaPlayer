@@ -7,10 +7,12 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.core.content.ContextCompat
+import androidx.core.os.LocaleListCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.appcompat.app.AppCompatDelegate
 import com.saicmotor.media.R
 import com.saicmotor.media.data.Library
 import com.saicmotor.media.data.PlaybackSettings
@@ -23,6 +25,7 @@ import com.saicmotor.media.ui.common.Navigator
 import com.saicmotor.media.update.Updater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 /** What to do when the car starts, the server login (set once, so it's near the end), and updates. */
 class SettingsFragment : Fragment() {
@@ -38,6 +41,22 @@ class SettingsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val ctx = requireContext()
+
+        val languageRows = mapOf(
+            "en" to b.languageEnglish,
+            "fr" to b.languageFrench
+        )
+        fun showLanguage(language: String) = languageRows.forEach { (tag, row) -> row.isSelected = tag == language }
+        val appLanguage = AppCompatDelegate.getApplicationLocales().get(0)?.language
+            ?: Locale.getDefault().language
+        showLanguage(if (appLanguage == "fr") "fr" else "en")
+        languageRows.forEach { (language, row) ->
+            row.setOnClickListener {
+                if (AppCompatDelegate.getApplicationLocales().toLanguageTags() != language) {
+                    AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(language))
+                }
+            }
+        }
 
         if (savedInstanceState == null) {
             val cfg = SubsonicSettings.load(ctx)

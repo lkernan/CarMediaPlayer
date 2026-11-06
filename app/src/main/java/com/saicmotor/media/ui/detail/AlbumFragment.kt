@@ -41,7 +41,7 @@ class AlbumFragment : RowsPageFragment() {
         val discs = d.songs.map { it.disc }.distinct()
         d.songs.forEachIndexed { i, song ->
             if (discs.size > 1 && (i == 0 || d.songs[i - 1].disc != song.disc)) {
-                add(Row.Heading("Disc ${song.disc}"))
+                add(Row.Heading(getString(R.string.disc_number, song.disc)))
             }
             add(Row.Track(
                 song, parentId,

@@ -28,6 +28,7 @@ import com.saicmotor.media.ui.common.PlayerState
 import com.saicmotor.media.ui.detail.AlbumFragment
 import com.saicmotor.media.ui.detail.ArtistFragment
 import com.saicmotor.media.ui.detail.GenreFragment
+import com.saicmotor.media.ui.detail.PlaylistFragment
 import com.saicmotor.media.ui.home.HomeFragment
 import com.saicmotor.media.ui.library.LibraryFragment
 import com.saicmotor.media.ui.queue.QueueFragment
@@ -197,6 +198,7 @@ class MainActivity : AppCompatActivity(), Navigator {
 
     override fun openAlbum(albumId: String)       = open(AlbumFragment.newInstance(albumId))
     override fun openArtist(artistId: String)     = open(ArtistFragment.newInstance(artistId))
+    override fun openPlaylist(playlistId: String) = open(PlaylistFragment.newInstance(playlistId))
     override fun openGenre(name: String)          = open(GenreFragment.newInstance(name))
     override fun openSettings()                   = show(Destination.SETTINGS)
     override fun openHome()                       = show(Destination.HOME)

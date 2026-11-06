@@ -162,6 +162,7 @@ object Format {
 interface Navigator {
     fun openAlbum(albumId: String)
     fun openArtist(artistId: String)
+    fun openPlaylist(playlistId: String)
     fun openGenre(name: String)
     fun openSettings()
     fun openHome()
