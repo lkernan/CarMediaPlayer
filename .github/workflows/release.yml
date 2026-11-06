@@ -1,0 +1,133 @@
+name: Release
+
+# Publishes each new version: when master's versionName (app/build.gradle)
+# has no release yet, this builds the app, runs the tests, signs the APK with
+# the AOSP test platform key (the key the car's firmware is signed with — it
+# is public) and publishes it as release "v<versionName>".  Settings → Check
+# for updates in the app installs the latest release.
+#
+# Nothing is published if the tests fail, the two build files disagree on
+# the version, or the downloaded key isn't the car's platform key.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # releases
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # AOSP test platform certificate and key (target/product/security in AOSP).
+  KEY_SOURCE: https://raw.githubusercontent.com/aosp-mirror/platform_build/main/target/product/security
+  PLATFORM_CERT_SHA256: c8a2e9bccf597c2fb6dc66bee293fc13f2fc47ec77bc6b2b0d52c11f51192ab8
+  PLATFORM_KEY_SHA256: 1ad8ef556870edb70f69a9d3c112544c07de5162ba440d84d33f8bb0c5962875
+
+jobs:
+  release:
+    # Pinned: the build uses the image's preinstalled Android SDK.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # to find the commit that set the version (release notes)
+
+      - name: Work out the version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v=$(sed -n 's/.*versionName *"\([^"]*\)".*/\1/p' app/build.gradle | head -1)
+          bv=$(sed -n 's/.*versionName *"\([^"]*\)".*/\1/p' tools/buildcheck/app/build.gradle | head -1)
+          if [ -z "$v" ] || [ "$v" != "$bv" ]; then
+            echo "::error::versionName is '$v' in app/build.gradle but '$bv' in tools/buildcheck/app/build.gradle"
+            exit 1
+          fi
+          echo "name=$v" >> "$GITHUB_OUTPUT"
+          echo "code=$(sed -n 's/.*versionCode *\([0-9][0-9]*\).*/\1/p' app/build.gradle | head -1)" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "v$v is already published: nothing to do."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@v6
+        if: steps.version.outputs.publish == 'true'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v6
+        if: steps.version.outputs.publish == 'true'
+        with:
+          gradle-version: "8.14.3"
+          cache-provider: basic   # the open-source (actions/cache) provider
+
+      - name: Build and test
+        if: steps.version.outputs.publish == 'true'
+        working-directory: tools/buildcheck
+        run: |
+          set -uo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon --console=plain 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          [ "$status" -eq 0 ] && exit 0
+          # Job logs need a GitHub sign-in to read; annotations don't.  Put
+          # what went wrong (and any failed tests) in annotations.
+          { grep -E -A12 '^\* What went wrong' build.log | head -40
+            grep -E '^e: |FAILED$' build.log | head -20; } > summary.txt || true
+          [ -s summary.txt ] || tail -n 40 build.log > summary.txt
+          echo "::error title=Build failed::$(sed 's/%/%25/g' summary.txt | awk '{ printf "%s%%0A", $0 }')"
+          python3 - <<'PY' || true
+          import glob, xml.etree.ElementTree as ET
+          for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              for case in ET.parse(f).getroot().iter('testcase'):
+                  for bad in case.findall('failure') + case.findall('error'):
+                      text = ((bad.get('message') or '') + '\n' + (bad.text or ''))[:2000]
+                      text = text.replace('%', '%25').replace('\r', '').replace('\n', '%0A')
+                      print(f"::error title=Test failed: {case.get('name')}::{text}")
+          PY
+          exit "$status"
+
+      - name: Sign
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          k="$RUNNER_TEMP/keys"; mkdir -p "$k"
+          curl -fsSL -o "$k/platform.pk8" "$KEY_SOURCE/platform.pk8"
+          curl -fsSL -o "$k/platform.x509.pem" "$KEY_SOURCE/platform.x509.pem"
+          echo "$PLATFORM_KEY_SHA256  $k/platform.pk8" | sha256sum -c -
+          cert=$(openssl x509 -in "$k/platform.x509.pem" -outform der | sha256sum | cut -d' ' -f1)
+          if [ "$cert" != "$PLATFORM_CERT_SHA256" ]; then
+            echo "::error::Downloaded certificate is $cert, not the car's platform key"; exit 1
+          fi
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" tools/sign.sh "$k" dist | tee sign.log
+          grep -q "$PLATFORM_CERT_SHA256" sign.log
+          rm -rf "$k"
+
+      - name: Publish
+        if: steps.version.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.name }}
+          CODE: ${{ steps.version.outputs.code }}
+        run: |
+          set -euo pipefail
+          # Notes: the message of the commit that set this version, without its
+          # trailers; each paragraph on one line, lists left as they are.
+          # Found by versionCode, which every version changes (a versionName can
+          # repeat one from the original project, as 1.0 did).
+          c=$(git log -1 --format=%H -G "versionCode  *$CODE" -- app/build.gradle)
+          git log -1 --format=%b "${c:-$GITHUB_SHA}" \
+            | grep -v -e '^Co-Authored-By:' -e '^Claude-Session:' \
+            | awk 'BEGIN { RS = ""; ORS = "\n\n" } { if ($0 !~ /(^|\n)- /) gsub(/\n/, " "); print }' > notes.md || true
+          [ -s notes.md ] || git log -1 --format=%s "${c:-$GITHUB_SHA}" > notes.md
+          gh release create "v$VERSION" "dist/CarMediaPlayer-$VERSION-MG4-platform-signed.apk" \
+            -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$VERSION" --notes-file notes.md --latest

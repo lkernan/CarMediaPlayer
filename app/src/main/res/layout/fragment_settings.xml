@@ -1,0 +1,360 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings: what happens when the car starts, then the Navidrome server. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="@dimen/form_width"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/gutter"
+        android:paddingEnd="@dimen/space_xs"
+        android:paddingBottom="@dimen/space_xl">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="@dimen/space_xs"
+            android:layout_marginBottom="@dimen/space_s"
+            android:text="@string/settings_language"
+            android:textAppearance="@style/Text.Heading"/>
+
+        <LinearLayout
+            android:id="@+id/language_english"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="72dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:background="@drawable/row_background"
+            android:clickable="true"
+            android:focusable="true">
+            <View
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:duplicateParentState="true"
+                android:background="@drawable/radio_indicator"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="28dp"
+                android:text="@string/language_english"
+                android:textAppearance="@style/Text.Body"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/language_french"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="72dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:background="@drawable/row_background"
+            android:clickable="true"
+            android:focusable="true">
+            <View
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:duplicateParentState="true"
+                android:background="@drawable/radio_indicator"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="28dp"
+                android:text="@string/language_french"
+                android:textAppearance="@style/Text.Body"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_xl"
+            android:layout_marginBottom="@dimen/space_s"
+            android:text="@string/settings_startup"
+            android:textAppearance="@style/Text.Heading"/>
+
+        <LinearLayout
+            android:id="@+id/startup_resume"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="96dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="@dimen/space_s"
+            android:paddingBottom="@dimen/space_s"
+            android:background="@drawable/row_background"
+            android:clickable="true"
+            android:focusable="true">
+
+            <View
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:duplicateParentState="true"
+                android:background="@drawable/radio_indicator"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="28dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/startup_resume"
+                    android:textAppearance="@style/Text.Body"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/startup_resume_body"
+                    android:textAppearance="@style/Text.Secondary"/>
+            </LinearLayout>
+        </LinearLayout>
+
+
+        <LinearLayout
+            android:id="@+id/startup_shuffle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="96dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="@dimen/space_s"
+            android:paddingBottom="@dimen/space_s"
+            android:background="@drawable/row_background"
+            android:clickable="true"
+            android:focusable="true">
+
+            <View
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:duplicateParentState="true"
+                android:background="@drawable/radio_indicator"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="28dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/startup_shuffle"
+                    android:textAppearance="@style/Text.Body"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/startup_shuffle_body"
+                    android:textAppearance="@style/Text.Secondary"/>
+            </LinearLayout>
+        </LinearLayout>
+
+
+        <LinearLayout
+            android:id="@+id/startup_nothing"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="96dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="@dimen/space_s"
+            android:paddingBottom="@dimen/space_s"
+            android:background="@drawable/row_background"
+            android:clickable="true"
+            android:focusable="true">
+
+            <View
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:duplicateParentState="true"
+                android:background="@drawable/radio_indicator"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="28dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/startup_nothing"
+                    android:textAppearance="@style/Text.Body"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/startup_nothing_body"
+                    android:textAppearance="@style/Text.Secondary"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Set once, so it's at the bottom (the page scrolls here when it isn't set up). -->
+        <TextView
+            android:id="@+id/server_heading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="56dp"
+            android:text="@string/settings_server"
+            android:textAppearance="@style/Text.Heading"/>
+
+        <TextView style="@style/FieldLabel" android:text="@string/settings_url"/>
+        <EditText
+            android:id="@+id/url"
+            style="@style/Field"
+            android:hint="@string/settings_url_hint"
+            android:inputType="textUri"
+            android:imeOptions="actionNext|flagNoExtractUi"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="@dimen/space_m"
+                android:orientation="vertical">
+                <TextView style="@style/FieldLabel" android:text="@string/settings_username"/>
+                <EditText
+                    android:id="@+id/username"
+                    style="@style/Field"
+                    android:inputType="text"
+                    android:imeOptions="actionNext|flagNoExtractUi"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView style="@style/FieldLabel" android:text="@string/settings_password"/>
+                <EditText
+                    android:id="@+id/password"
+                    style="@style/Field"
+                    android:inputType="textPassword"
+                    android:imeOptions="actionDone|flagNoExtractUi"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_l"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/save"
+                style="@style/PillButton"
+                android:layout_width="wrap_content"
+                android:paddingStart="40dp"
+                android:text="@string/settings_save"/>
+
+            <ProgressBar
+                android:id="@+id/testing"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="@dimen/space_l"
+                android:indeterminateTint="@color/accent"
+                android:visibility="gone"/>
+
+            <ImageView
+                android:id="@+id/status_icon"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="@dimen/space_l"
+                android:contentDescription="@null"
+                android:visibility="gone"/>
+
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/space_s"
+                android:maxLines="2"
+                android:ellipsize="end"
+                android:textAppearance="@style/Text.Secondary"/>
+        </LinearLayout>
+
+        <!-- Updates: only looked for when the button is pressed. -->
+        <TextView
+            android:id="@+id/updates_heading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="56dp"
+            android:text="@string/update_heading"
+            android:textAppearance="@style/Text.Heading"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_l"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/check_updates"
+                style="@style/PillButton.Quiet"
+                android:layout_width="wrap_content"
+                android:paddingStart="40dp"
+                android:text="@string/update_check"/>
+
+            <ProgressBar
+                android:id="@+id/update_busy"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="@dimen/space_l"
+                android:indeterminateTint="@color/accent"
+                android:visibility="gone"/>
+
+            <ImageView
+                android:id="@+id/update_icon"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="@dimen/space_l"
+                android:contentDescription="@null"
+                android:visibility="gone"/>
+
+            <TextView
+                android:id="@+id/update_status"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/space_s"
+                android:maxLines="2"
+                android:ellipsize="end"
+                android:textAppearance="@style/Text.Secondary"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/version"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_l"
+            android:paddingStart="20dp"
+            android:textAppearance="@style/Text.Caption"/>
+    </LinearLayout>
+</ScrollView>

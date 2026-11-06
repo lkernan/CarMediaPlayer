@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Selected destination: an amber bar under the label, like a lit indicator. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true">
+        <layer-list>
+            <item android:gravity="bottom" android:height="5dp" android:left="20dp" android:right="20dp" android:bottom="14dp">
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/accent"/>
+                    <corners android:radius="3dp"/>
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <item android:drawable="@android:color/transparent"/>
+</selector>

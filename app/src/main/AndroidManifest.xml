@@ -1,16 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:sharedUserId="android.uid.system">
 
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS"/>
-    <uses-permission android:name="android.permission.BLUETOOTH"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- See other apps' media sessions, so steering-wheel keys can be passed to
+         YouTube etc. when they're playing (granted to system-UID apps). -->
+    <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL"/>
+    <!-- Record "music is available" where the SAIC launcher looks for it, as
+         the stock media app does (see SaicModeBridge). -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions"/>
+    <!-- Settings → Check for updates installs the new version itself (granted
+         to platform-signed apps); the second is the fallback where the head
+         unit wants the install confirmed on screen. -->
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES"
+        tools:ignore="ProtectedPermissions"/>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <application
         android:name=".MyApplication"
@@ -34,9 +44,15 @@
             </intent-filter>
         </activity>
 
-        <!-- ════════ Main service — MediaBrowserServiceCompat + ExoPlayer ════════ -->
+        <!-- ════════ Main service — MediaBrowserServiceCompat + ExoPlayer ════════
+             directBootAware: the launcher can reach it (and it can play from
+             the song cache) as soon as the head unit boots, ~10 s before the
+             user storage unlocks.  Everything it reads is in device-protected
+             storage (see data/Storage.kt).  The same goes for the launcher's
+             browse endpoints and the boot receiver below. -->
         <service
             android:name="com.saicmotor.media.service.MediaService"
+            android:directBootAware="true"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
@@ -45,9 +61,12 @@
             </intent-filter>
         </service>
 
-        <!-- ════════ MediaBrowserServices (each isolated process) ════════ -->
+        <!-- ════════ Launcher browse endpoints (each isolated process) ════════
+             The SAIC launcher binds to the stock media app's per-source
+             services by these names; each serves the Navidrome library. -->
         <service
             android:name="com.saicmotor.media.mbs.Usb1MediaBrowserService"
+            android:directBootAware="true"
             android:exported="true"
             android:process=":Usb1MediaBrowserService">
             <intent-filter>
@@ -57,6 +76,7 @@
 
         <service
             android:name="com.saicmotor.media.mbs.Usb2MediaBrowserService"
+            android:directBootAware="true"
             android:exported="true"
             android:process=":Usb2MediaBrowserService">
             <intent-filter>
@@ -66,6 +86,7 @@
 
         <service
             android:name="com.saicmotor.media.mbs.OnlineMediaBrowserService"
+            android:directBootAware="true"
             android:exported="true"
             android:process=":OnlineMediaBrowserService">
             <intent-filter>
@@ -75,6 +96,7 @@
 
         <service
             android:name="com.saicmotor.media.mbs.BtMediaBrowserService"
+            android:directBootAware="true"
             android:exported="true"
             android:process=":BtMediaBrowserService">
             <intent-filter>
@@ -85,12 +107,22 @@
         <!-- ════════ Boot receiver ════════ -->
         <receiver
             android:name=".boot.BootReceiver"
+            android:directBootAware="true"
             android:exported="true">
             <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
                 <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
         </receiver>
+
+        <!-- ════════ Update installs (Settings → Check for updates) ════════ -->
+        <receiver
+            android:name=".update.UpdateStatusReceiver"
+            android:exported="false"/>
 
         <!-- ════════ Widget receivers ════════ -->
         <receiver
@@ -129,8 +161,6 @@
                 <action android:name="com.saicmotor.media.widget.play_pause"/>
                 <action android:name="com.saicmotor.media.widget.previous"/>
                 <action android:name="com.saicmotor.media.widget.next"/>
-                <action android:name="com.saicmotor.media.widget.source_prev"/>
-                <action android:name="com.saicmotor.media.widget.source_next"/>
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

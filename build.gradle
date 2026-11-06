@@ -3,7 +3,6 @@ buildscript {
         agp_version     = '8.2.2'
         kotlin_version  = '1.9.22'
         media3_version  = '1.3.1'
-        room_version    = '2.6.1'
     }
     repositories {
         google()

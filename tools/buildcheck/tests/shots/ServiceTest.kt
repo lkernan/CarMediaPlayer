@@ -1,0 +1,893 @@
+package shots
+
+import android.app.Application
+import android.content.ComponentName
+import android.content.Intent
+import android.os.Bundle
+import android.os.Looper
+import android.os.Parcel
+import android.os.SystemClock
+import android.provider.Settings
+import android.support.v4.media.session.PlaybackStateCompat
+import android.view.KeyEvent
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.saicmotor.common.CommandParcelable
+import com.saicmotor.media.data.SubsonicSettings
+import com.saicmotor.media.service.MediaService
+import com.saicmotor.media.service.ResumeStore
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
+import java.time.Duration
+
+/**
+ * The real MediaService: the SAIC launcher's start-up commands, restoring the
+ * saved queue without the network, steering-wheel skip / hold, previous, and
+ * ignoring "play" while another app is playing.
+ */
+@RunWith(AndroidJUnit4::class)
+@LooperMode(LooperMode.Mode.PAUSED)
+@Config(sdk = [28], qualifiers = "w1920dp-h720dp-land-mdpi", shadows = [InstantAudioTrack::class])
+class ServiceTest {
+
+    private val app get() = ApplicationProvider.getApplicationContext<Application>()
+    private val looper get() = shadowOf(Looper.getMainLooper())
+
+    @Before
+    fun setUp() {
+        // A fresh song cache: the app keeps one for as long as it runs, and the tests share one run.
+        val cache = com.saicmotor.media.service.MediaCache::class.java.getDeclaredField("cache").apply { isAccessible = true }
+        (cache.get(null) as? androidx.media3.datasource.cache.SimpleCache)?.release()
+        cache.set(null, null)
+        // Port 9 on this machine: refuses straight away, like no network.
+        SubsonicSettings.save(app, SubsonicSettings.Config("http://127.0.0.1:9", "me", "secret"))
+    }
+
+    // ── helpers ──────────────────────────────────────────────────────────
+
+    private fun service(): MediaService {
+        val s = Robolectric.buildService(MediaService::class.java).create().get()
+        looper.idle()
+        return s
+    }
+
+    private fun MediaService.player(): ExoPlayer =
+        MediaService::class.java.getDeclaredField("player").apply { isAccessible = true }.get(this) as ExoPlayer
+
+    private fun MediaService.call(name: String, vararg args: Any?): Any? {
+        val m = MediaService::class.java.declaredMethods.first { it.name == name && it.parameterCount == args.size }
+        m.isAccessible = true
+        return m.invoke(this, *args)
+    }
+
+    private fun idle(ms: Long) = looper.idleFor(Duration.ofMillis(ms))
+
+    /** Runs the main thread until [done] (the restore reads its file on a background thread). */
+    private fun waitFor(done: () -> Boolean) {
+        val until = System.currentTimeMillis() + 5_000
+        while (!done() && System.currentTimeMillis() < until) { looper.idle(); Thread.sleep(5) }
+        looper.idle()
+    }
+
+    private fun MediaService.restoredByLauncher(event: Int = CommandParcelable.SWITCH_SOURCE_ONLY_PLAY) {
+        onStartCommand(launcherCommand(event), 0, 1)
+        waitFor { player().mediaItemCount > 0 }
+    }
+
+    private fun item(i: Int) = ResumeStore.SavedItem("sub:s$i", "Song $i", "Artist", "Album", null, "al1", "ar1", 200_000L)
+
+    /** What the app saves while playing: song 3 of 8, 42 s in. */
+    private fun savePlayingState() {
+        val store = ResumeStore(app)
+        store.saveQueue(MediaService.ONLINE_ROOT, ResumeStore.QueueKind.BROWSE, MediaService.albumNodeId("al1"))
+        store.saveItem(item(3), 42_000L)
+        store.saveSnapshot((0 until 8).map(::item))
+    }
+
+    private fun launcherCommand(event: Int) = Intent()
+        .setComponent(ComponentName(app, MediaService::class.java))
+        .putExtra(CommandParcelable.COMMAND_KEY, CommandParcelable(event, "com.saicmotor.launcher", 0, -1))
+
+    private fun key(code: Int, action: Int, downTime: Long, eventTime: Long) =
+        KeyEvent(downTime, eventTime, action, code, 0)
+
+    // ── tests ────────────────────────────────────────────────────────────
+
+    @Test
+    fun settingsMoveToDeviceStorageOnce() {
+        // As an older version left them: normal (credential-protected) storage.
+        app.getSharedPreferences("subsonic_prefs", 0).edit()
+            .putString("url", "https://old.example.com").putString("username", "me").putString("password", "pw").commit()
+        app.getSharedPreferences("playback_settings", 0).edit().putString("startup_mode", "SHUFFLE_LIBRARY").commit()
+        java.io.File(app.filesDir, "queue_snapshot.json").writeText("[]")
+        com.saicmotor.media.data.Storage.context(app).getSharedPreferences("storage", 0).edit().clear().commit()
+        com.saicmotor.media.data.Storage.migrate(app)
+        assertEquals("https://old.example.com", SubsonicSettings.load(app).url)
+        assertEquals(com.saicmotor.media.data.PlaybackSettings.StartupMode.SHUFFLE_LIBRARY,
+            com.saicmotor.media.data.PlaybackSettings.startupMode(app))
+        assertTrue(java.io.File(com.saicmotor.media.data.Storage.context(app).filesDir, "queue_snapshot.json").exists())
+        assertFalse(java.io.File(app.filesDir, "queue_snapshot.json").exists())
+        // Only once: later changes stay put.
+        SubsonicSettings.save(app, SubsonicSettings.Config("https://new.example.com", "me", "pw"))
+        com.saicmotor.media.data.Storage.migrate(app)
+        assertEquals("https://new.example.com", SubsonicSettings.load(app).url)
+        println("device storage: ${com.saicmotor.media.data.Storage.context(app).filesDir}")
+    }
+
+    /**
+     * Navidrome picks the transcoding (Opus 128k for the car) by "player" =
+     * client name + User-Agent.  Song downloads must look like the same player
+     * as the app's other requests, or Navidrome sends the original FLAC.
+     */
+    @Test
+    fun songsAreFetchedAsTheSamePlayerAsTheLibrary() {
+        val server = java.net.ServerSocket(0, 5, java.net.InetAddress.getByName("127.0.0.1"))
+        val agents = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val serving = Thread {
+            repeat(2) {
+                server.accept().use { socket ->
+                    val reader = socket.getInputStream().bufferedReader()
+                    var line = reader.readLine()
+                    val isStream = line.contains("/rest/stream")
+                    while (!line.isNullOrEmpty()) {
+                        if (line.startsWith("User-Agent:", ignoreCase = true)) agents += line.substringAfter(':').trim()
+                        line = reader.readLine()
+                    }
+                    val body = if (isStream) "0123456789".toByteArray()
+                               else """{"subsonic-response":{"status":"ok","version":"1.16.1","type":"navidrome"}}""".toByteArray()
+                    socket.getOutputStream().apply {
+                        write("HTTP/1.1 200 OK\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                        write(body); flush()
+                    }
+                }
+            }
+        }.apply { start() }
+        val cfg = SubsonicSettings.Config("http://127.0.0.1:${server.localPort}", "me", "secret")
+        SubsonicSettings.save(app, cfg)
+        com.saicmotor.media.subsonic.SubsonicClient.ping(cfg)
+        val uri = android.net.Uri.parse(com.saicmotor.media.subsonic.SubsonicClient.streamUrl(cfg, "x"))
+        com.saicmotor.media.service.MediaCache.precache(app, "sub:x", uri) { }
+        serving.join(5_000); server.close()
+        println("User-Agents: $agents")
+        assertEquals(2, agents.size)
+        assertEquals("API and song requests must match", agents[0], agents[1])
+        assertTrue(com.saicmotor.media.service.MediaCache.isCached(app, "sub:x"))
+    }
+
+    /** Paused, then the volume changed: the launcher's "play" that comes with it is ignored. */
+    @Test
+    fun volumeChangeDoesNotUnpause() {
+        val s = service()
+        fun hardKey(code: Int) {
+            app.sendBroadcast(Intent("com.saic.keyevent.hardkey.report").putExtra("android.intent.extra.hardkey.keycode", code))
+            looper.idle()
+        }
+        fun cause() = s.call("launcherPlayCause").toString()
+        assertEquals("NOT_KNOWN", cause())
+        hardKey(297)                       // steering-wheel volume up
+        assertEquals("VOLUME", cause())
+        idle(1_200)
+        assertEquals("a play long after is a real play", "NOT_KNOWN", cause())
+        hardKey(298); idle(10); hardKey(301)   // volume, then the play/pause key
+        assertEquals("play/pause pressed: play", "CENTRE_KEY", cause())
+        idle(100); hardKey(297)            // play/pause, then volume
+        assertEquals("the volume, just after play/pause", "VOLUME", cause())
+    }
+
+    /** The launcher's tile must use the cover bitmap, so the art URL isn't published as ALBUM_ART_URI. */
+    @Test
+    fun launcherGetsTheCoverBitmapNotAUrl() {
+        savePlayingState()
+        val s = service()
+        waitFor { s.player().mediaItemCount > 0 }
+        val meta = s.call("buildMetadata", s.player().currentMediaItem, null) as android.support.v4.media.MediaMetadataCompat
+        assertEquals(null, meta.getString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI))
+        assertEquals("Song 3", meta.getString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_TITLE))
+    }
+
+    /** Plays that couldn't be reported (no signal) are kept, and sent once the server answers. */
+    @Test
+    fun scrobblesWaitForTheSignal() {
+        val pending = com.saicmotor.media.service.PendingScrobbles(app)
+        pending.add(com.saicmotor.media.service.PendingScrobbles.Play("a", 1L))
+        pending.add(com.saicmotor.media.service.PendingScrobbles.Play("b", 2L))
+        pending.add(com.saicmotor.media.service.PendingScrobbles.Play("a", 1L))   // same play twice: kept once
+        assertEquals(listOf("a", "b"), com.saicmotor.media.service.PendingScrobbles(app).all().map { it.songId })
+        val server = java.net.ServerSocket(0, 5, java.net.InetAddress.getByName("127.0.0.1"))
+        val seen = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val serving = Thread {
+            repeat(2) {
+                server.accept().use { socket ->
+                    val reader = socket.getInputStream().bufferedReader()
+                    val first = reader.readLine()
+                    Regex("[?&]id=([^&]+).*[?&]time=(\\d+)|[?&]time=(\\d+).*[?&]id=([^&]+)").find(first)?.let { seen += first }
+                    var line = first
+                    while (!line.isNullOrEmpty()) line = reader.readLine()
+                    val body = """{"subsonic-response":{"status":"ok","version":"1.16.1"}}""".toByteArray()
+                    socket.getOutputStream().apply {
+                        write("HTTP/1.1 200 OK\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray()); write(body); flush()
+                    }
+                }
+            }
+        }.apply { start() }
+        SubsonicSettings.save(app, SubsonicSettings.Config("http://127.0.0.1:${server.localPort}", "me", "secret"))
+        val s = service()
+        s.call("sendPendingScrobbles")
+        serving.join(5_000); server.close()
+        assertEquals(2, seen.size)
+        assertTrue(seen[0].contains("id=a") && seen[0].contains("time=1") && seen[0].contains("submission=true"))
+        assertTrue(com.saicmotor.media.service.PendingScrobbles(app).all().isEmpty())
+    }
+
+    @Test
+    fun commandParcelMatchesTheFirmware() {
+        // Written exactly as com.saicmotor.common.CommandParcelable in the launcher writes it.
+        val p = Parcel.obtain()
+        p.writeInt(32773); p.writeString("com.saicmotor.launcher"); p.writeInt(0); p.writeInt(-1); p.writeBundle(Bundle())
+        p.setDataPosition(0)
+        val c = CommandParcelable.CREATOR.createFromParcel(p)
+        assertEquals(32773, c.event)
+        assertEquals("com.saicmotor.launcher", c.targetPackage)
+        assertEquals(0, c.targetType)
+        assertEquals(-1, c.targetState)
+        // And ours reads back the same way.
+        val q = Parcel.obtain()
+        CommandParcelable(16417, "com.saicmotor.media", 0, 1).writeToParcel(q, 0)
+        q.setDataPosition(0)
+        assertEquals(16417, q.readInt()); assertEquals("com.saicmotor.media", q.readString())
+        assertEquals(0, q.readInt()); assertEquals(1, q.readInt())
+        println("command parcel layout: OK")
+    }
+
+    @Test
+    fun reportsMusicAvailableToTheLauncher() {
+        service()
+        assertEquals(1, Settings.System.getInt(app.contentResolver, "usb1AvailableStatus", -1))
+        assertEquals(0, Settings.System.getInt(app.contentResolver, "onlineAvailableStatus", -1))
+        val sent = generateSequence { shadowOf(app).nextStartedService }.toList()
+        val toLauncher = sent.filter { it.component?.className == "com.saicmotor.launcher.model.LauncherService" }
+            .mapNotNull {
+                @Suppress("DEPRECATION")
+                it.getParcelableExtra<CommandParcelable>(CommandParcelable.COMMAND_KEY)
+            }
+        val usb1 = toLauncher.first { it.event == 16417 && it.targetType == 0 }
+        assertEquals(1, usb1.targetState)
+        assertFalse("nothing for a hard-key app that isn't there",
+            sent.any { it.component?.packageName == "com.saicmotor.hardkey" })
+        println("availability sent: ${toLauncher.joinToString { "type ${it.targetType}=${it.targetState}" }}")
+    }
+
+    @Test
+    fun launcherStartupPlayRestoresInstantlyWithoutNetwork() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher()
+        val p = s.player()
+        assertEquals(8, p.mediaItemCount)
+        assertEquals("sub:s3", p.currentMediaItem?.mediaId)
+        assertEquals(42_000L, p.currentPosition)
+        assertTrue("should be trying to play", p.playWhenReady)
+        // The server can't be reached: we wait ("buffering"), not skip or error.
+        idle(3_000)
+        assertEquals("sub:s3", p.currentMediaItem?.mediaId)
+        val state = s.call("buildPlaybackState") as PlaybackStateCompat
+        println("state while the server is unreachable: ${state.state} speed ${state.playbackSpeed}, error=${p.playerError?.errorCodeName}")
+        // Shown as playing (the car's tile shows anything else as paused), but not moving.
+        assertEquals(PlaybackStateCompat.STATE_PLAYING, state.state)
+        assertEquals(0f, state.playbackSpeed)
+        println("launcher start-up restore: OK")
+    }
+
+    @Test
+    fun queueIsReadyBeforeTheLauncherAsks() {
+        savePlayingState()
+        val s = service()                  // started by the launcher as the head unit comes up
+        waitFor { s.player().mediaItemCount > 0 }
+        val p = s.player()
+        assertEquals("sub:s3", p.currentMediaItem?.mediaId)
+        assertFalse("ready, but waiting for the launcher", p.playWhenReady)
+        s.onStartCommand(launcherCommand(CommandParcelable.SWITCH_SOURCE_ONLY_PLAY), 0, 1)
+        looper.idle()
+        assertTrue(p.playWhenReady)
+        assertEquals(42_000L, p.currentPosition)
+        // The timing logged: the queue was back before the launcher asked.
+        fun field(name: String) = MediaService::class.java.getDeclaredField(name).apply { isAccessible = true }.get(s)
+        assertTrue((field("traceQueueAt") as Long) in 0..(field("traceLauncherAt") as Long))
+        assertEquals(0, field("traceOnDiskPct"))
+        s.call("finishTrace")
+    }
+
+    @Test
+    fun bootFallbackPlaysAPreparedQueueIfTheLauncherNeverAsks() {
+        savePlayingState()
+        val s = service()
+        waitFor { s.player().mediaItemCount > 0 }
+        s.onStartCommand(Intent(app, MediaService::class.java).setAction(MediaService.ACTION_BOOT_START), 0, 1)
+        idle(24_000)
+        assertFalse(s.player().playWhenReady)
+        idle(2_000)
+        assertTrue(s.player().playWhenReady)
+    }
+
+    @Test
+    fun networkProblemsAreWaitedOutOtherErrorsAreNot() {
+        val policy = com.saicmotor.media.service.WaitForNetworkPolicy()
+        val spec = androidx.media3.datasource.DataSpec(android.net.Uri.parse("http://x/rest/stream"))
+        fun delay(e: java.io.IOException, count: Int = 1) = policy.getRetryDelayMsFor(
+            androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo(
+                androidx.media3.exoplayer.source.LoadEventInfo(1, spec, 0),
+                androidx.media3.exoplayer.source.MediaLoadData(androidx.media3.common.C.DATA_TYPE_MEDIA),
+                e, count))
+        val noNetwork = androidx.media3.datasource.HttpDataSource.HttpDataSourceException(
+            java.net.UnknownHostException("music.example.com"), spec,
+            androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            androidx.media3.datasource.HttpDataSource.HttpDataSourceException.TYPE_OPEN)
+        fun http(code: Int) = androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException(
+            code, null, null, emptyMap(), spec, ByteArray(0))
+        assertEquals(1_000L, delay(noNetwork))
+        assertEquals(1_000L, delay(noNetwork, 200))
+        assertEquals(androidx.media3.common.C.TIME_UNSET, delay(noNetwork, 601))
+        assertEquals(3_000L, delay(http(503)))
+        assertEquals(androidx.media3.common.C.TIME_UNSET, delay(http(404)))
+        assertEquals(androidx.media3.common.C.TIME_UNSET, delay(java.io.IOException("bad file"), 4))
+        assertEquals(Int.MAX_VALUE, policy.getMinimumLoadableRetryCount(androidx.media3.common.C.DATA_TYPE_MEDIA))
+    }
+
+    /** The launcher asks for "paused" when it last saw the music paused: start-up plays anyway. */
+    @Test
+    fun launcherStartupPauseStillPlays() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        assertEquals(8, s.player().mediaItemCount)
+        assertTrue(s.player().playWhenReady)
+    }
+
+    @Test
+    fun startupStaysQuietWhenTheSettingIsNothing() {
+        savePlayingState()
+        com.saicmotor.media.data.PlaybackSettings.setStartupMode(app, com.saicmotor.media.data.PlaybackSettings.StartupMode.NOTHING)
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        assertEquals("loaded, ready to go", 8, s.player().mediaItemCount)
+        assertFalse(s.player().playWhenReady)
+    }
+
+    @Test
+    fun updaterReadsTheLatestReleaseAndComparesVersions() {
+        val json = """{"tag_name":"v2.0.10","name":"2.0.10","assets":[
+            {"name":"notes.txt","browser_download_url":"https://example.com/notes.txt","size":10},
+            {"name":"CarMediaPlayer-2.0.10-MG4-platform-signed.apk","browser_download_url":"https://example.com/app.apk","size":8059106}]}"""
+        val r = com.saicmotor.media.update.Updater.parseRelease(json)
+        assertEquals("2.0.10", r.version)
+        assertEquals("https://example.com/app.apk", r.apkUrl)
+        assertEquals(8059106L, r.apkSize)
+        assertEquals(null, com.saicmotor.media.update.Updater.parseRelease("""{"tag_name":"2.1","assets":[]}""").apkUrl)
+
+        val u = com.saicmotor.media.update.Updater
+        assertTrue(u.isNewer("2.0.10", "2.0.9"))
+        assertTrue(u.isNewer("2.1", "2.0.9"))
+        assertTrue(u.isNewer("3.0.0", "2.9.99"))
+        assertFalse(u.isNewer("2.0.9", "2.0.9"))
+        assertFalse(u.isNewer("2.0.9", "2.0.10"))
+        assertFalse(u.isNewer("2.0", "2.0.0"))
+    }
+
+    @Test
+    fun afterAnUpdateTheAppComesBackOnlyIfTheUpdaterDidIt() {
+        val receiver = com.saicmotor.media.boot.BootReceiver()
+        val replaced = Intent(Intent.ACTION_MY_PACKAGE_REPLACED)
+        val shadowApp = shadowOf(app)
+
+        // Installed some other way (e.g. adb): nothing happens.
+        receiver.onReceive(app, replaced)
+        assertEquals(null, shadowApp.nextStartedActivity)
+
+        // Installed by "Check for updates" while music was playing.
+        com.saicmotor.media.data.Storage.prefs(app, "update").edit()
+            .putLong("installing_at", System.currentTimeMillis() - 20_000)
+            .putBoolean("was_playing", true).commit()
+        receiver.onReceive(app, replaced)
+        assertEquals("com.saicmotor.media.ui.activity.MainActivity", shadowApp.nextStartedActivity?.component?.className)
+        assertEquals(MediaService.ACTION_RESUME_AFTER_UPDATE, shadowApp.nextStartedService?.action)
+        // …once.
+        receiver.onReceive(app, replaced)
+        assertEquals(null, shadowApp.nextStartedActivity)
+    }
+
+    @Test
+    fun playingCarriesOnAfterAnUpdate() {
+        savePlayingState()
+        val s = service()
+        s.onStartCommand(Intent(app, MediaService::class.java).setAction(MediaService.ACTION_RESUME_AFTER_UPDATE), 0, 1)
+        waitFor { s.player().mediaItemCount > 0 && s.player().playWhenReady }
+        assertEquals(8, s.player().mediaItemCount)
+        assertEquals(3, s.player().currentMediaItemIndex)
+        assertTrue(s.player().playWhenReady)
+    }
+
+    private fun wheelKey(code: Int, down: Boolean, longPress: Boolean = false) {
+        app.sendBroadcast(Intent("com.saic.keyevent.hardkey.report")
+            .putExtra("android.intent.extra.hardkey.keycode", code)
+            .putExtra("android.intent.extra.hardkey.down", down)
+            .putExtra("android.intent.extra.hardkey.longpress", longPress))
+        looper.idle()
+    }
+
+    @Test
+    fun wheelKeyTheLauncherIgnoresAfterStarIsDoneHere() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        s.call("userPause")
+        assertFalse(s.player().playWhenReady)
+
+        // A centre press on its own: the launcher acts on it (it isn't here), so we don't.
+        wheelKey(301, true); wheelKey(301, false)
+        idle(700)
+        assertFalse("left to the launcher", s.player().playWhenReady)
+
+        // STAR (its release never comes), then centre: the launcher ignores
+        // that one, so the app plays.
+        wheelKey(17, true)
+        wheelKey(301, true); wheelKey(301, false)
+        idle(700)
+        assertTrue("played by the app", s.player().playWhenReady)
+
+        // The launcher counts afresh after that: the next press is its own again.
+        wheelKey(301, true); wheelKey(301, false)
+        idle(700)
+        assertTrue(s.player().playWhenReady)
+    }
+
+    /** Stands in for YouTube: another app with its own player. */
+    private class FakeOtherPlayer(var playing: Boolean = true) : MediaService.OtherPlayer {
+        val calls = mutableListOf<String>()
+        override val packageName = "org.smarttube.stable"
+        override val isPlaying get() = playing
+        override fun play()  { calls += "play";  playing = true }
+        override fun pause() { calls += "pause"; playing = false }
+    }
+
+    @Test
+    fun centreKeyControlsTheAppBeingWatchedThenTheMusicOnceItsClosed() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        s.call("userPause")
+        val youtube = FakeOtherPlayer()
+        s.otherPlayerForTest = youtube
+        idle(1_000)
+
+        // Back (STAR), then centre: the launcher ignores it, the app passes it to YouTube.
+        wheelKey(17, true); wheelKey(301, true); wheelKey(301, false)
+        idle(700)
+        assertEquals(listOf("pause"), youtube.calls)
+        wheelKey(17, true); wheelKey(301, true); wheelKey(301, false)
+        idle(700)
+        assertEquals(listOf("pause", "play"), youtube.calls)
+        assertFalse("the music stays paused", s.player().playWhenReady)
+
+        // YouTube closed: the centre key is the music's again.
+        s.otherPlayerForTest = null
+        wheelKey(17, true); wheelKey(301, true); wheelKey(301, false)
+        idle(700)
+        assertTrue(s.player().playWhenReady)
+    }
+
+    @Test
+    fun skipKeysLeaveThePausedQueueAloneWhileAnotherAppIsWatched() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        s.call("userPause")
+        s.otherPlayerForTest = FakeOtherPlayer()
+        idle(1_000)
+        val index = s.player().currentMediaItemIndex
+        wheelKey(17, true); wheelKey(300, true); wheelKey(300, false)
+        idle(700)
+        assertEquals(index, s.player().currentMediaItemIndex)
+        assertFalse(s.player().playWhenReady)
+    }
+
+    @Test
+    fun wheelKeyAfterStarIsLeftAloneIfTheLauncherActs() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        wheelKey(17, true)
+        wheelKey(300, true); wheelKey(300, false)
+        // The launcher skipped after all (a command arrives in time).
+        s.onStartCommand(launcherCommand(CommandParcelable.SWITCH_SOURCE_ONLY_PLAY), 0, 1)
+        val index = s.player().currentMediaItemIndex
+        idle(700)
+        assertEquals("not skipped twice", index, s.player().currentMediaItemIndex)
+    }
+
+    /** The first volume press after STAR: the launcher drops it, so the app turns the volume itself. */
+    @Test
+    fun volumeKeyTheLauncherIgnoresAfterStarIsDoneHere() {
+        val s = service()
+        val steps = java.util.Collections.synchronizedList(mutableListOf<String>())
+        s.volumeStepperForTest = com.saicmotor.media.service.VolumeStepper { up ->
+            steps += if (up) "up" else "down"; true
+        }
+        idle(1_000)
+
+        // A press on its own is the launcher's.
+        wheelKey(297, true); wheelKey(297, false)
+        idle(400)
+        assertEquals(emptyList<String>(), steps.toList())
+
+        // STAR (its release never comes), then volume down: the launcher drops it.
+        wheelKey(17, true); wheelKey(298, true); wheelKey(298, false)
+        idle(400)
+        waitFor { steps.isNotEmpty() }
+        assertEquals(listOf("down"), steps.toList())
+
+        // The launcher counts afresh after that: the next press is its own again.
+        wheelKey(297, true); wheelKey(297, false)
+        idle(400)
+        assertEquals(listOf("down"), steps.toList())
+
+        // STAR, then up, but the car's volume changed anyway (the launcher did
+        // act): not turned up twice.
+        wheelKey(17, true); wheelKey(297, true); wheelKey(297, false)
+        app.contentResolver.notifyChange(
+            android.net.Uri.parse("content://settings/global/android.car.VOLUME_GROUP/0"), null)
+        idle(400)
+        assertEquals(listOf("down"), steps.toList())
+
+        // STAR, then a volume key held down: the launcher still handles that.
+        wheelKey(17, true); wheelKey(297, true); wheelKey(297, true, longPress = true); wheelKey(297, false)
+        idle(400)
+        assertEquals(listOf("down"), steps.toList())
+
+        // And another short one after STAR: up.
+        wheelKey(17, true); wheelKey(297, true); wheelKey(297, false)
+        idle(400)
+        waitFor { steps.size == 2 }
+        assertEquals(listOf("down", "up"), steps.toList())
+    }
+
+    /** An Ogg page (Ogg's checksum isn't checked by the player, so it's left at 0). */
+    private fun oggPage(type: Int, granule: Long, seq: Int, packet: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val head = java.nio.ByteBuffer.allocate(27).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        head.put("OggS".toByteArray()).put(0).put(type.toByte()).putLong(granule)
+            .putInt(0x1234).putInt(seq).putInt(0).put(1.toByte())
+        out.write(head.array()); out.write(packet.size); out.write(packet)
+        return out.toByteArray()
+    }
+
+    /**
+     * A song still streaming (transcoded: no length) gets its duration from
+     * the server's metadata, so a dropped connection carries on where it was
+     * instead of restarting the song (ExoPlayer restarts streams it can't
+     * tell the duration of, taking them for live radio).
+     */
+    /** A short Ogg Opus stream, as Navidrome sends the car (transcoded). */
+    private fun opusStream(): ByteArray {
+        val le = { n: Int -> java.nio.ByteBuffer.allocate(4).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(n).array() }
+        val opusHead = "OpusHead".toByteArray() + byteArrayOf(1, 2, 0x38, 0x01) + le(48_000) + byteArrayOf(0, 0, 0)
+        val opusTags = "OpusTags".toByteArray() + le(4) + "test".toByteArray() + le(0)
+        val audio = ByteArray(40) { if (it == 0) 0xFC.toByte() else 0 }
+        return oggPage(2, 0, 0, opusHead) + oggPage(0, 0, 1, opusTags) +
+            (0 until 5).fold(ByteArray(0)) { acc, i -> acc + oggPage(0, 960L * (i + 1), 2 + i, audio) }
+    }
+
+    @Test
+    fun streamingSongKnowsItsLength() {
+        val stream = opusStream()
+
+        fun durationSeen(factory: androidx.media3.extractor.ExtractorsFactory): Long? {
+            val source = androidx.media3.datasource.ByteArrayDataSource(stream)
+            val uri = android.net.Uri.parse("https://music.example.com/rest/stream?id=s1")
+            source.open(androidx.media3.datasource.DataSpec(uri))
+            // Length unknown, as for a transcoded stream.
+            val input = androidx.media3.extractor.DefaultExtractorInput(source, 0, androidx.media3.common.C.LENGTH_UNSET.toLong())
+            val extractor = factory.createExtractors(uri, emptyMap()).first { input.resetPeekPosition(); it.sniff(input) }
+            input.resetPeekPosition()
+            var seen: Long? = null
+            extractor.init(object : androidx.media3.extractor.ExtractorOutput {
+                override fun track(id: Int, type: Int) = androidx.media3.extractor.DummyTrackOutput()
+                override fun endTracks() {}
+                override fun seekMap(seekMap: androidx.media3.extractor.SeekMap) { seen = seekMap.durationUs }
+            })
+            val position = androidx.media3.extractor.PositionHolder()
+            repeat(50) {
+                if (seen == null && extractor.read(input, position) == androidx.media3.extractor.Extractor.RESULT_END_OF_INPUT) return seen
+            }
+            return seen
+        }
+
+        assertEquals("on its own, the player can't tell how long the stream is",
+            androidx.media3.common.C.TIME_UNSET, durationSeen(androidx.media3.extractor.DefaultExtractorsFactory()))
+        assertEquals("with the song's length from the server", 237_000_000L,
+            durationSeen(com.saicmotor.media.service.KnownDurationExtractors(237_000_000L)))
+    }
+
+    /**
+     * The player itself: a song streaming from the server (no length, like a
+     * transcoded one) gets its length from the song's details, isn't taken
+     * for live radio, and holding a skip key doesn't start it over.
+     */
+    @Test
+    fun streamingSongIsNotLiveRadioAndIsntSkippedThrough() {
+        val stream = opusStream()
+        val server = java.net.ServerSocket(0, 20, java.net.InetAddress.getByName("127.0.0.1"))
+        Thread {
+            try {
+                while (true) {
+                    val socket = server.accept()
+                    Thread {
+                        socket.use {
+                            val reader = it.getInputStream().bufferedReader()
+                            val request = reader.readLine().orEmpty()
+                            var line = reader.readLine()
+                            while (!line.isNullOrEmpty()) line = reader.readLine()
+                            val out = it.getOutputStream()
+                            if (request.contains("/rest/stream")) {
+                                // No Content-Length: the connection closing ends it.
+                                out.write("HTTP/1.1 200 OK\r\nContent-Type: audio/ogg\r\nConnection: close\r\n\r\n".toByteArray())
+                                out.write(stream)
+                            } else {
+                                val body = """{"subsonic-response":{"status":"ok","version":"1.16.1"}}""".toByteArray()
+                                out.write("HTTP/1.1 200 OK\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                                out.write(body)
+                            }
+                            out.flush()
+                        }
+                    }.start()
+                }
+            } catch (_: Exception) {}
+        }.apply { isDaemon = true; start() }
+        SubsonicSettings.save(app, SubsonicSettings.Config("http://127.0.0.1:${server.localPort}", "me", "secret"))
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PLAY)
+        val p = s.player()
+        waitFor { p.duration != androidx.media3.common.C.TIME_UNSET }
+        assertEquals("the song's length, from its details", 200_000L, p.duration)
+        assertFalse("not taken for live radio", p.isCurrentMediaItemLive)
+        assertFalse("can't seek in it yet", p.isCurrentMediaItemSeekable)
+        val before = p.currentPosition
+        assertFalse("fast forward refused", s.call("seekBy", 10_000L) as Boolean)
+        assertTrue("not started over or moved", p.currentPosition in before until before + 2_000)
+        server.close()
+    }
+
+    private fun sessionCallback(s: MediaService) =
+        Class.forName("com.saicmotor.media.service.MediaService\$SessionCallback")
+            .getDeclaredConstructor(MediaService::class.java).apply { isAccessible = true }
+            .newInstance(s) as android.support.v4.media.session.MediaSessionCompat.Callback
+
+    /** Quick presses of the centre key: the launcher's "play" (which waits a moment) doesn't undo a pause after it. */
+    @Test
+    fun quickPlayThenPauseStaysPaused() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        s.call("userPause")
+        idle(1_500)
+        val launcher = sessionCallback(s)
+        s.callerForTest = "com.saicmotor.launcher"
+
+        launcher.onPlay(); idle(100); launcher.onPause(); idle(500)
+        assertFalse("the later pause wins", s.player().playWhenReady)
+        launcher.onPlay(); idle(400)
+        assertTrue("a play on its own plays", s.player().playWhenReady)
+
+        // Just paused, so the sound still going is the music's own, fading out:
+        // not another app playing.
+        shadowOf(app.getSystemService(android.media.AudioManager::class.java)).setIsMusicActive(true)
+        launcher.onPause(); idle(100); launcher.onPlay(); idle(400)
+        assertTrue("plays again", s.player().playWhenReady)
+        // Long after the pause, sound is another app's: it keeps the music quiet.
+        launcher.onPause(); idle(1_500); launcher.onPlay(); idle(400)
+        assertFalse(s.player().playWhenReady)
+        s.callerForTest = null
+    }
+
+    /**
+     * The launcher's "play" for the centre key is acted on at once (it decides
+     * play or pause by the state it sees, so a quick second press then pauses),
+     * and a volume press just after a pause doesn't play.  (LauncherWheelTest
+     * does the same with the launcher's own code.)
+     */
+    @Test
+    fun centreKeyPlaysAtOnceAndVolumeAfterAPauseDoesnt() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher(CommandParcelable.SWITCH_SOURCE_ONLY_PAUSE)
+        s.call("userPause")
+        idle(1_500)
+        val launcher = sessionCallback(s)
+        s.callerForTest = "com.saicmotor.launcher"
+
+        // Centre key: reported as it's pressed; the launcher acts when it's let go.
+        wheelKey(301, true); idle(100); wheelKey(301, false)
+        launcher.onPlay(); looper.idle()
+        assertTrue("playing at once", s.player().playWhenReady)
+        // A second press: the launcher sees it playing and pauses.
+        idle(100); wheelKey(301, true); idle(100); wheelKey(301, false)
+        launcher.onPause(); idle(500)
+        assertFalse(s.player().playWhenReady)
+
+        // Volume up 150 ms later: the launcher sends "play" with it.
+        idle(150); wheelKey(297, true); idle(100); wheelKey(297, false)
+        launcher.onPlay(); idle(500)
+        assertFalse("still paused", s.player().playWhenReady)
+        s.callerForTest = null
+    }
+
+    /** Navidrome too busy for a cover ("429"): asked again a moment later, then given up on. */
+    @Test
+    fun busyCoverRequestsAreAskedAgain() {
+        val server = java.net.ServerSocket(0, 10, java.net.InetAddress.getByName("127.0.0.1"))
+        val replies = java.util.concurrent.LinkedBlockingQueue(listOf(429, 429, 200, 429, 429, 429))
+        val hits = java.util.concurrent.atomic.AtomicInteger()
+        Thread {
+            try {
+                while (true) server.accept().use { socket ->
+                    val reader = socket.getInputStream().bufferedReader()
+                    var line = reader.readLine()
+                    while (!line.isNullOrEmpty()) line = reader.readLine()
+                    hits.incrementAndGet()
+                    val code = replies.poll() ?: 200
+                    socket.getOutputStream().apply {
+                        write("HTTP/1.1 $code X\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx".toByteArray())
+                        flush()
+                    }
+                }
+            } catch (_: Exception) {}
+        }.apply { isDaemon = true; start() }
+        val client = okhttp3.OkHttpClient.Builder()
+            .addInterceptor(com.saicmotor.media.data.RetryWhenBusy(listOf(10L, 10L))).build()
+        fun get() = client.newCall(okhttp3.Request.Builder()
+            .url("http://127.0.0.1:${server.localPort}/rest/getCoverArt?id=al-1").build()).execute()
+        get().use { assertEquals(200, it.code) }
+        assertEquals("busy twice, then the cover", 3, hits.get())
+        get().use { assertEquals("still busy after two more tries: given up", 429, it.code) }
+        assertEquals(6, hits.get())
+        server.close()
+    }
+
+    /** The calls that turn the car's volume: the same ones the launcher makes (from the firmware). */
+    @Test
+    fun carVolumeCallsTheCarAdapterServiceLikeTheLauncher() {
+        val calls = mutableListOf<String>()
+        val audio = object : android.os.Binder() {
+            override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+                data.enforceInterface("com.saicmotor.carapi.audio.ICarAudioService")
+                calls += "audio $code ${data.readInt()}"
+                reply?.writeNoException()
+                return true
+            }
+        }
+        val adapter = object : android.os.Binder() {
+            override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+                data.enforceInterface("com.saicmotor.carapi.ICarAdapterService")
+                calls += "adapter $code ${data.readInt()}"
+                reply?.writeNoException()
+                reply?.writeStrongBinder(audio)
+                return true
+            }
+        }
+        shadowOf(app).setComponentNameAndServiceForBindServiceForIntent(
+            Intent("com.saicmotor.caradapter.CarAdapterService").setPackage("com.saicmotor.caradapter"),
+            ComponentName("com.saicmotor.caradapter", "com.saicmotor.caradapter.service.CarAdapterService"),
+            adapter)
+        val volume = com.saicmotor.media.service.CarVolume(app)
+        assertFalse("not connected yet", volume.step(true))
+        volume.connect()
+        looper.idle()
+        assertTrue(volume.step(true))
+        assertTrue(volume.step(false))
+        // queryClient(10) once, then ICarAudioService.volumeUp / volumeDown with the hard-key flag.
+        assertEquals(listOf("adapter 1 10", "audio 42 1024", "audio 43 1024"), calls)
+        volume.disconnect()
+        assertFalse(volume.step(true))
+    }
+
+    @Test
+    fun skipKeysPressSkipsHoldSeeksAndPreviousRestartsTheSong() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher()
+        val p = s.player()
+        val handle = { e: KeyEvent -> s.call("handleMediaKey", e); idle(1) }
+
+        // Short press of next: next song.
+        var t = SystemClock.uptimeMillis()
+        handle(key(KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.ACTION_DOWN, t, t))
+        idle(150)
+        handle(key(KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.ACTION_UP, t, t + 150))
+        assertEquals("sub:s4", p.currentMediaItem?.mediaId)
+
+        // Hold next for ~1.7 s: fast forward 5 s every half second, then stop.
+        t = SystemClock.uptimeMillis()
+        handle(key(KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.ACTION_DOWN, t, t))
+        idle(1_700)
+        val held = p.currentPosition
+        handle(key(KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.ACTION_UP, t, t + 1_700))
+        idle(2_000)
+        assertEquals("still the same song", "sub:s4", p.currentMediaItem?.mediaId)
+        assertTrue("fast-forwarded ($held ms)", held >= 15_000)
+        assertEquals("stopped when let go", held, p.currentPosition)
+        println("held next for 1.7 s → ${held / 1000} s in")
+
+        // Press and release arriving together, but held 1 s: one 10 s jump.
+        t = SystemClock.uptimeMillis()
+        handle(key(KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.ACTION_UP, t - 1_000, t))
+        assertEquals(held - 10_000, p.currentPosition)
+
+        // Previous, well into the song: back to its start.
+        t = SystemClock.uptimeMillis()
+        handle(key(KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.ACTION_DOWN, t, t))
+        handle(key(KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.ACTION_UP, t, t + 100))
+        assertEquals("sub:s4", p.currentMediaItem?.mediaId)
+        assertEquals(0L, p.currentPosition)
+        // Previous again, at the start: the song before.
+        t = SystemClock.uptimeMillis()
+        handle(key(KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.ACTION_DOWN, t, t))
+        handle(key(KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.ACTION_UP, t, t + 100))
+        assertEquals("sub:s3", p.currentMediaItem?.mediaId)
+        println("skip / hold / previous: OK")
+    }
+
+    @Test
+    fun launcherFastForwardRunsUntilStopped() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher()
+        val p = s.player()
+        val start = p.currentPosition
+        s.call("startFastSeek", true)      // what onFastForward does
+        idle(1_200)
+        s.call("handleCustomAction", MediaService.ACTION_STOP_FAST_FORWARD, null)
+        val stopped = p.currentPosition
+        idle(2_000)
+        assertTrue(stopped - start >= 10_000)
+        assertEquals(stopped, p.currentPosition)
+    }
+
+    @Test
+    fun playFromOtherAppsIsIgnoredWhileSomethingElsePlays() {
+        val s = service()
+        val audio = shadowOf(app.getSystemService(android.media.AudioManager::class.java))
+        audio.setIsMusicActive(true)
+        assertTrue("launcher's volume-key play while YouTube plays", s.call("externalPlayBlocked", "com.saicmotor.launcher") as Boolean)
+        assertFalse("our own screen can always play", s.call("externalPlayBlocked", app.packageName) as Boolean)
+        audio.setIsMusicActive(false)
+        assertFalse(s.call("externalPlayBlocked", "com.saicmotor.launcher") as Boolean)
+    }
+
+    @Test
+    fun repeatStaysOffAndTheQueueIsSaved() {
+        savePlayingState()
+        val s = service()
+        s.restoredByLauncher()
+        val p = s.player()
+        p.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ALL
+        idle(10)
+        assertEquals(androidx.media3.common.Player.REPEAT_MODE_OFF, p.repeatMode)
+        // Skip on, and the saved queue follows.
+        p.seekToNextMediaItem()
+        idle(1_500)
+        val snapshot = ResumeStore(app).loadSnapshot()
+        assertEquals(8, snapshot.size)
+        assertNotNull(snapshot.firstOrNull { it.mediaId == "sub:s4" })
+        assertEquals(200_000L, snapshot[0].durationMs)
+    }
+}

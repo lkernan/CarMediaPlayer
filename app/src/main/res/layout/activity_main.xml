@@ -1,186 +1,98 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Root is a FrameLayout so the Now Playing screen can overlay the full
-     display — including the sidebar — as a true full-screen experience.
-     Layer order (back → front):
-       1. main_layout  — horizontal split: sidebar | content + mini player
-       2. fullscreen_container — full-screen overlay used only for Now Playing -->
-<FrameLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Split screen: now playing on the left (a square as tall as the screen),
+     the library on the right. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg_dark">
+    android:orientation="horizontal"
+    android:background="@color/bg">
 
-<!-- ── Main app layout (sidebar + browse content) ──────────────────── -->
-<LinearLayout
-    android:id="@+id/main_layout"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="horizontal">
+    <com.saicmotor.media.ui.common.SquarePanelLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent">
 
-    <!-- ── Left nav sidebar ──────────────────────────────────────────── -->
-    <LinearLayout
-        android:id="@+id/side_nav"
-        android:layout_width="@dimen/side_nav_width"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:background="@color/top_bar_bg"
-        android:paddingVertical="@dimen/spacing_xs">
-
-        <!-- Source tabs (stacked) -->
-        <Button
-            android:id="@+id/btn_source_usb1"
-            style="@style/SourceTabButton"
-            android:text="@string/source_usb1"/>
-
-        <Button
-            android:id="@+id/btn_source_online"
-            style="@style/SourceTabButton"
-            android:text="@string/source_online"/>
-
-        <Button
-            android:id="@+id/btn_source_bt"
-            style="@style/SourceTabButton"
-            android:text="@string/source_bt"/>
-
-        <!-- Push Now Playing to the bottom -->
-        <View
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:layout_weight="1"/>
-
-        <!-- Now Playing pill — full-width at the bottom of the sidebar -->
-        <Button
-            android:id="@+id/btn_now_playing"
-            style="@style/NowPlayingButton"
+        <androidx.fragment.app.FragmentContainerView
+            android:id="@+id/now_playing"
+            android:name="com.saicmotor.media.ui.nowplaying.NowPlayingFragment"
             android:layout_width="match_parent"
-            android:layout_marginHorizontal="@dimen/spacing_sm"
-            android:layout_marginBottom="@dimen/spacing_sm"
-            android:text="@string/now_playing"
-            android:drawableStart="@drawable/ic_play"
-            android:drawablePadding="@dimen/spacing_sm"/>
+            android:layout_height="match_parent"/>
+    </com.saicmotor.media.ui.common.SquarePanelLayout>
 
-    </LinearLayout>
-
-    <!-- Thin vertical divider between nav and content -->
-    <View
-        android:layout_width="1dp"
-        android:layout_height="match_parent"
-        android:background="@color/divider"/>
-
-    <!-- ── Right area: content + mini player ─────────────────────────── -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
         android:orientation="vertical">
 
-        <!-- ── Browse or Now Playing fragment ───────────────────────── -->
+        <!-- Top bar: back, destinations, Up next, Settings -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/top_bar_height"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="28dp"
+            android:paddingEnd="@dimen/space_m">
+
+            <ImageButton
+                android:id="@+id/back"
+                style="@style/IconButton"
+                android:layout_marginEnd="@dimen/space_xs"
+                android:contentDescription="@string/back"
+                android:src="@drawable/ic_back"
+                android:visibility="gone"
+                app:tint="@color/ink"/>
+
+            <TextView
+                android:id="@+id/tab_home"
+                style="@style/TopTab"
+                android:text="@string/tab_home"/>
+
+            <TextView
+                android:id="@+id/tab_search"
+                style="@style/TopTab"
+                android:text="@string/tab_search"/>
+
+            <TextView
+                android:id="@+id/tab_library"
+                style="@style/TopTab"
+                android:text="@string/tab_library"/>
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1"/>
+
+            <ImageButton
+                android:id="@+id/tab_queue"
+                style="@style/IconButton"
+                android:layout_height="match_parent"
+                android:paddingTop="34dp"
+                android:paddingBottom="34dp"
+                android:background="@drawable/tab_background"
+                android:foreground="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/up_next"
+                android:src="@drawable/ic_queue"
+                app:tint="@color/tab_text"/>
+
+            <ImageButton
+                android:id="@+id/tab_settings"
+                style="@style/IconButton"
+                android:layout_height="match_parent"
+                android:paddingTop="34dp"
+                android:paddingBottom="34dp"
+                android:layout_marginStart="@dimen/space_xs"
+                android:background="@drawable/tab_background"
+                android:foreground="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/settings"
+                android:src="@drawable/ic_settings"
+                app:tint="@color/tab_text"/>
+        </LinearLayout>
+
         <FrameLayout
-            android:id="@+id/content_container"
+            android:id="@+id/content"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"/>
-
-        <!-- ── Mini player divider + bar ─────────────────────────────── -->
-        <View
-            android:id="@+id/mini_player_divider"
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/divider"
-            android:visibility="gone"/>
-
-        <LinearLayout
-            android:id="@+id/mini_player"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/mini_player_height"
-            android:orientation="horizontal"
-            android:background="@color/mini_player_bg"
-            android:gravity="center_vertical"
-            android:visibility="gone">
-
-            <ImageView
-                android:id="@+id/mini_album_art"
-                android:layout_width="@dimen/mini_player_thumb"
-                android:layout_height="@dimen/mini_player_thumb"
-                android:scaleType="centerCrop"
-                android:background="@color/bg_card"
-                android:contentDescription="@null"/>
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:paddingHorizontal="@dimen/spacing_md">
-
-                <TextView
-                    android:id="@+id/mini_title"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:textColor="@color/text_primary"
-                    android:textSize="@dimen/text_md"
-                    android:textStyle="bold"/>
-
-                <TextView
-                    android:id="@+id/mini_artist"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="@dimen/text_sm"/>
-
-            </LinearLayout>
-
-            <ImageButton
-                android:id="@+id/mini_btn_previous"
-                android:layout_width="@dimen/mini_player_btn"
-                android:layout_height="@dimen/mini_player_btn"
-                android:padding="@dimen/spacing_sm"
-                android:scaleType="fitCenter"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_skip_previous"
-                android:tint="@color/text_primary"
-                android:contentDescription="Previous"/>
-
-            <ImageButton
-                android:id="@+id/mini_btn_play_pause"
-                android:layout_width="@dimen/mini_player_btn"
-                android:layout_height="@dimen/mini_player_btn"
-                android:padding="@dimen/spacing_sm"
-                android:scaleType="fitCenter"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_play"
-                android:tint="@color/accent"
-                android:contentDescription="Play / Pause"/>
-
-            <ImageButton
-                android:id="@+id/mini_btn_next"
-                android:layout_width="@dimen/mini_player_btn"
-                android:layout_height="@dimen/mini_player_btn"
-                android:padding="@dimen/spacing_sm"
-                android:scaleType="fitCenter"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_skip_next"
-                android:tint="@color/text_primary"
-                android:contentDescription="Next"
-                android:layout_marginEnd="@dimen/spacing_md"/>
-
-        </LinearLayout>
-
     </LinearLayout>
-
 </LinearLayout>
-
-<!-- ── Full-screen Now Playing overlay ──────────────────────────────── -->
-<!-- Sits in front of the sidebar + browse content.  Shown only when the
-     Now Playing fragment is active; gone at all other times.            -->
-<FrameLayout
-    android:id="@+id/fullscreen_container"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:visibility="gone"/>
-
-</FrameLayout>

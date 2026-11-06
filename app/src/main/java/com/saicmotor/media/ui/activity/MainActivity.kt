@@ -5,51 +5,62 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.net.Uri
 import android.os.Bundle
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaControllerCompat
+import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.view.View
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
-import coil.load
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import com.saicmotor.media.MyApplication
 import com.saicmotor.media.R
-import com.saicmotor.media.data.SubsonicSettings
+import com.saicmotor.media.data.Library
 import com.saicmotor.media.databinding.ActivityMainBinding
-import com.saicmotor.media.databinding.DialogSubsonicSettingsBinding
 import com.saicmotor.media.service.MediaService
-import com.saicmotor.media.subsonic.SubsonicClient
-import com.saicmotor.media.ui.fragment.BrowseFragment
-import com.saicmotor.media.ui.fragment.NowPlayingFragment
+import com.saicmotor.media.ui.common.Navigator
+import com.saicmotor.media.ui.common.NowPlaying
+import com.saicmotor.media.ui.common.Playback
+import com.saicmotor.media.ui.common.PlayerState
+import com.saicmotor.media.ui.detail.AlbumFragment
+import com.saicmotor.media.ui.detail.ArtistFragment
+import com.saicmotor.media.ui.detail.GenreFragment
+import com.saicmotor.media.ui.detail.PlaylistFragment
+import com.saicmotor.media.ui.home.HomeFragment
+import com.saicmotor.media.ui.library.LibraryFragment
+import com.saicmotor.media.ui.queue.QueueFragment
+import com.saicmotor.media.ui.search.SearchFragment
+import com.saicmotor.media.ui.settings.SettingsFragment
 
-class MainActivity : AppCompatActivity() {
+/**
+ * Split screen: the now-playing panel on the left, the library on the right
+ * with Home / Search / Library tabs, Up next and Settings.  Album, artist
+ * and genre pages open over the current tab; Back returns.
+ */
+class MainActivity : AppCompatActivity(), Navigator {
+
+    enum class Destination { HOME, SEARCH, LIBRARY, QUEUE, SETTINGS }
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var mediaBrowser: MediaBrowserCompat
+    private var destination = Destination.HOME
 
     private var skinReceiverRegistered = false
-
     private val skinReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            syncSkinTheme()
-        }
+        override fun onReceive(context: Context, intent: Intent) = syncSkinTheme()
     }
 
     /**
      * Reads SKIN_THEME_CONFIG and aligns AppCompat's default night mode with
-     * it.  If the value differs from the current default the activity will be
-     * recreated by AppCompat — fragment state (back stack, BrowseFragment's
-     * navigation stack, current source) is preserved via savedInstanceState.
+     * it.  If the value differs the activity is recreated by AppCompat; pages
+     * and the open tab are restored from savedInstanceState.
      *
-     * Called from three places to cover every path that can desync us from
-     * SKIN_THEME_CONFIG: before super.onCreate (catches a stale value cached
-     * by MyApplication when the process was kept alive across a skin change),
-     * onStart (catches broadcasts missed while the activity was stopped),
-     * and the skinReceiver (catches live changes while we're foregrounded).
+     * Called before super.onCreate (catches a stale value cached by
+     * MyApplication), from onStart (catches broadcasts missed while stopped)
+     * and by skinReceiver (live changes while in the foreground).
      */
     private fun syncSkinTheme() {
         val newMode = (application as MyApplication).currentNightMode()
@@ -58,92 +69,75 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ── Session connection ────────────────────────────────────────────────
+
     private val connectionCallback = object : MediaBrowserCompat.ConnectionCallback() {
         override fun onConnected() {
-            val token = mediaBrowser.sessionToken
-            val controller = MediaControllerCompat(this@MainActivity, token)
+            val controller = MediaControllerCompat(this@MainActivity, mediaBrowser.sessionToken)
             MediaControllerCompat.setMediaController(this@MainActivity, controller)
+            Playback.controller = controller
             controller.registerCallback(controllerCallback)
-            controllerCallback.onMetadataChanged(controller.metadata)
-            controllerCallback.onPlaybackStateChanged(controller.playbackState)
-            nowPlayingFragment()?.onControllerReady()
+            PlayerState.nowPlaying.value = NowPlaying.from(controller.metadata)
+            PlayerState.updateFrom(controller.playbackState)
+            PlayerState.updateQueue(controller.queue)
         }
     }
 
     private val controllerCallback = object : MediaControllerCompat.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
-            val title  = metadata?.getString(MediaMetadataCompat.METADATA_KEY_TITLE)  ?: ""
-            val artist = metadata?.getString(MediaMetadataCompat.METADATA_KEY_ARTIST) ?: ""
-            binding.miniTitle.text  = title
-            binding.miniArtist.text = artist
-            val miniVis = if (title.isNotEmpty()) View.VISIBLE else View.GONE
-            // Only show if Now Playing isn't already fullscreen
-            if (supportFragmentManager.findFragmentByTag(TAG_NOW_PLAYING) == null) {
-                binding.miniPlayer.visibility = miniVis
-                binding.miniPlayerDivider.visibility = miniVis
-            }
-
-            val artUriStr = metadata?.getString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI)
-            binding.miniAlbumArt.load(artUriStr?.let { Uri.parse(it) }) {
-                placeholder(R.drawable.ic_album_art_placeholder)
-                error(R.drawable.ic_album_art_placeholder)
-            }
+            PlayerState.nowPlaying.value = NowPlaying.from(metadata)
         }
         override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
-            val playing = state?.state == PlaybackStateCompat.STATE_PLAYING
-            binding.miniBtnPlayPause.setImageResource(
-                if (playing) R.drawable.ic_pause else R.drawable.ic_play
-            )
+            PlayerState.updateFrom(state)
+        }
+        override fun onQueueChanged(queue: MutableList<MediaSessionCompat.QueueItem>?) {
+            PlayerState.updateQueue(queue)
+        }
+        override fun onSessionDestroyed() {
+            Playback.controller = null
         }
     }
 
+    // ── Lifecycle ─────────────────────────────────────────────────────────
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Must run before super.onCreate so the activity's AppCompat delegate
-        // applies the correct night mode during its initial inflation.
+        // Before super.onCreate so the first inflation uses the right skin.
         syncSkinTheme()
         super.onCreate(savedInstanceState)
+        Library.init(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Start MediaService explicitly so it survives the activity going to the background.
-        // Without this the service only runs while a client is bound; once onStop() disconnects
-        // the MediaBrowserCompat the service is destroyed and playback stops.
+        // Start MediaService explicitly so it outlives this screen; a bound-only
+        // service would stop when the activity goes to the background.
         startForegroundService(Intent(this, MediaService::class.java))
-
         mediaBrowser = MediaBrowserCompat(
-            this,
-            ComponentName(this, MediaService::class.java),
-            connectionCallback,
-            null
+            this, ComponentName(this, MediaService::class.java), connectionCallback, null
         )
 
-        setupClickListeners()
+        binding.tabHome.setOnClickListener     { show(Destination.HOME) }
+        binding.tabSearch.setOnClickListener   { show(Destination.SEARCH) }
+        binding.tabLibrary.setOnClickListener  { show(Destination.LIBRARY) }
+        binding.tabQueue.setOnClickListener    { show(Destination.QUEUE) }
+        binding.tabSettings.setOnClickListener { show(Destination.SETTINGS) }
+        binding.back.setOnClickListener        { supportFragmentManager.popBackStack() }
+        supportFragmentManager.addOnBackStackChangedListener { updateBack() }
 
         if (savedInstanceState == null) {
-            supportFragmentManager.beginTransaction()
-                .replace(R.id.content_container, BrowseFragment(), TAG_BROWSE)
-                .commit()
-            highlightSource(MediaService.USB1_ROOT)
+            // First run: go straight to the server settings.
+            show(if (Library.isConfigured) Destination.HOME else Destination.SETTINGS)
         } else {
-            // After recreate (e.g. SKIN_THEME_CONFIG flip) restore the sidebar
-            // highlight and the fullscreen overlay visibility — the fragments
-            // themselves were restored by FragmentManager.
-            highlightSource(browseFragment()?.sourceRoot ?: MediaService.USB1_ROOT)
-            binding.fullscreenContainer.visibility =
-                if (supportFragmentManager.findFragmentByTag(TAG_NOW_PLAYING) != null)
-                    View.VISIBLE else View.GONE
+            destination = savedInstanceState.getString(KEY_DESTINATION)
+                ?.let { name -> Destination.values().firstOrNull { it.name == name } }
+                ?: Destination.HOME
+            highlight()
+            updateBack()
         }
+    }
 
-        // Hide the full-screen overlay as soon as Now Playing is popped from
-        // the back stack — covers both the hardware back button and the in-app
-        // close button (which both call popBackStack()).
-        supportFragmentManager.addOnBackStackChangedListener {
-            val nowPlayingVisible =
-                supportFragmentManager.findFragmentByTag(TAG_NOW_PLAYING) != null
-            binding.fullscreenContainer.visibility =
-                if (nowPlayingVisible) View.VISIBLE else View.GONE
-            if (!nowPlayingVisible) showMiniPlayer()
-        }
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_DESTINATION, destination.name)
     }
 
     override fun onStart() {
@@ -152,8 +146,6 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(skinReceiver, IntentFilter("com.saicmotor.changeSkin"))
             skinReceiverRegistered = true
         }
-        // Catch any skin change that happened while we were stopped — the
-        // broadcast was dropped because the receiver was unregistered.
         syncSkinTheme()
         mediaBrowser.connect()
     }
@@ -166,150 +158,65 @@ class MainActivity : AppCompatActivity() {
         }
         MediaControllerCompat.getMediaController(this)?.unregisterCallback(controllerCallback)
         mediaBrowser.disconnect()
+        Playback.controller = null
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        val browse = browseFragment()
-        if (supportFragmentManager.backStackEntryCount > 0) {
-            // The OnBackStackChangedListener handles hiding the overlay and
-            // restoring the mini player once the pop completes.
-            supportFragmentManager.popBackStack()
-        } else if (browse?.navigateBack() == true) {
-            // handled
-        } else {
-            super.onBackPressed()
+        when {
+            supportFragmentManager.backStackEntryCount > 0 -> supportFragmentManager.popBackStack()
+            destination != Destination.HOME -> show(Destination.HOME)
+            else -> @Suppress("DEPRECATION") super.onBackPressed()
         }
     }
 
-    private fun setupClickListeners() {
-        // Source tab clicks
-        binding.btnSourceUsb1.setOnClickListener   { switchSource(MediaService.USB1_ROOT) }
-        binding.btnSourceOnline.setOnClickListener { switchSource(MediaService.ONLINE_ROOT) }
-        binding.btnSourceBt.setOnClickListener     { switchSource(MediaService.BT_ROOT) }
+    // ── Navigation ────────────────────────────────────────────────────────
 
-        // Long-press on Subsonic tab → re-open settings
-        binding.btnSourceOnline.setOnLongClickListener {
-            showSubsonicSettings()
-            true
+    /** Switches tab, closing any album/artist pages that were open. */
+    fun show(dest: Destination) {
+        val fm = supportFragmentManager
+        if (fm.backStackEntryCount > 0) fm.popBackStack(null, FragmentManager.POP_BACK_STACK_INCLUSIVE)
+        if (dest == destination && fm.findFragmentById(R.id.content) != null) return
+        destination = dest
+        val page: Fragment = when (dest) {
+            Destination.HOME     -> HomeFragment()
+            Destination.SEARCH   -> SearchFragment()
+            Destination.LIBRARY  -> LibraryFragment()
+            Destination.QUEUE    -> QueueFragment()
+            Destination.SETTINGS -> SettingsFragment()
         }
-
-        // Now Playing pill
-        binding.btnNowPlaying.setOnClickListener { showNowPlaying() }
-
-        // Mini player controls
-        binding.miniBtnPlayPause.setOnClickListener {
-            val c = MediaControllerCompat.getMediaController(this)
-            if (c?.playbackState?.state == PlaybackStateCompat.STATE_PLAYING)
-                c.transportControls.pause() else c?.transportControls?.play()
-        }
-        binding.miniBtnPrevious.setOnClickListener {
-            MediaControllerCompat.getMediaController(this)?.transportControls?.skipToPrevious()
-        }
-        binding.miniBtnNext.setOnClickListener {
-            MediaControllerCompat.getMediaController(this)?.transportControls?.skipToNext()
-        }
-        binding.miniPlayer.setOnClickListener { showNowPlaying() }
+        fm.beginTransaction().replace(R.id.content, page).commit()
+        highlight()
     }
 
-    // ── Navigation ─────────────────────────────────────────────────────────
-
-    private fun switchSource(root: String) {
-        highlightSource(root)
-        // Tell MediaService which source is now in the foreground so it can
-        // route transport controls correctly (ExoPlayer vs AVRCP).
-        startService(
-            Intent(this, MediaService::class.java)
-                .setAction(MediaService.ACTION_SET_SOURCE)
-                .putExtra(MediaService.EXTRA_SOURCE, root)
-        )
-        if (root == MediaService.BT_ROOT) {
-            // Bluetooth has no browse tree — jump straight to the Now Playing screen
-            showNowPlaying()
-            return
-        }
-        browseFragment()?.sourceRoot = root
-        if (supportFragmentManager.backStackEntryCount > 0) {
-            supportFragmentManager.popBackStack()
-            showMiniPlayer()
-        }
-        // Auto-prompt settings if Subsonic has never been configured
-        if (root == MediaService.ONLINE_ROOT && !SubsonicSettings.load(this).isValid) {
-            showSubsonicSettings()
-        }
-    }
-
-    private fun showMiniPlayer() {
-        val hasTrack = binding.miniTitle.text.isNotEmpty()
-        val vis = if (hasTrack) View.VISIBLE else View.GONE
-        binding.miniPlayer.visibility = vis
-        binding.miniPlayerDivider.visibility = vis
-    }
-
-    internal fun showNowPlaying() {
-        if (supportFragmentManager.findFragmentByTag(TAG_NOW_PLAYING) != null) return
-        binding.miniPlayer.visibility = View.GONE
-        binding.miniPlayerDivider.visibility = View.GONE
-        binding.fullscreenContainer.visibility = View.VISIBLE
+    private fun open(page: Fragment) {
         supportFragmentManager.beginTransaction()
-            .replace(R.id.fullscreen_container, NowPlayingFragment(), TAG_NOW_PLAYING)
+            .replace(R.id.content, page)
             .addToBackStack(null)
             .commit()
-        binding.root.post {
-            nowPlayingFragment()?.onControllerReady()
-        }
     }
 
-    /**
-     * Shows the Subsonic server configuration dialog.
-     * Pre-fills current settings; saves on OK and triggers a re-browse
-     * if the Subsonic source is currently active.
-     */
-    internal fun showSubsonicSettings() {
-        val cfg         = SubsonicSettings.load(this)
-        val dialogBinding = DialogSubsonicSettingsBinding.inflate(layoutInflater)
+    override fun openAlbum(albumId: String)       = open(AlbumFragment.newInstance(albumId))
+    override fun openArtist(artistId: String)     = open(ArtistFragment.newInstance(artistId))
+    override fun openPlaylist(playlistId: String) = open(PlaylistFragment.newInstance(playlistId))
+    override fun openGenre(name: String)          = open(GenreFragment.newInstance(name))
+    override fun openSettings()                   = show(Destination.SETTINGS)
+    override fun openHome()                       = show(Destination.HOME)
 
-        dialogBinding.editUrl.setText(cfg.url)
-        dialogBinding.editUsername.setText(cfg.username)
-        dialogBinding.editPassword.setText(cfg.password)
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.subsonic_dialog_title)
-            .setView(dialogBinding.root)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val newCfg = SubsonicSettings.Config(
-                    url      = dialogBinding.editUrl.text.toString().trim().trimEnd('/'),
-                    username = dialogBinding.editUsername.text.toString().trim(),
-                    password = dialogBinding.editPassword.text.toString()
-                )
-                SubsonicSettings.save(this, newCfg)
-                SubsonicClient.invalidateCache()
-                // Re-browse if the Subsonic source is already selected
-                browseFragment()?.let { fragment ->
-                    if (fragment.sourceRoot == MediaService.ONLINE_ROOT) {
-                        fragment.sourceRoot = MediaService.ONLINE_ROOT
-                    }
-                }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+    private fun highlight() {
+        binding.tabHome.isSelected     = destination == Destination.HOME
+        binding.tabSearch.isSelected   = destination == Destination.SEARCH
+        binding.tabLibrary.isSelected  = destination == Destination.LIBRARY
+        binding.tabQueue.isSelected    = destination == Destination.QUEUE
+        binding.tabSettings.isSelected = destination == Destination.SETTINGS
     }
 
-    private fun highlightSource(root: String) {
-        val accent    = getColor(R.color.accent)
-        val secondary = getColor(R.color.text_secondary)
-        binding.btnSourceUsb1.setTextColor(   if (root == MediaService.USB1_ROOT)   accent else secondary)
-        binding.btnSourceOnline.setTextColor( if (root == MediaService.ONLINE_ROOT) accent else secondary)
-        binding.btnSourceBt.setTextColor(     if (root == MediaService.BT_ROOT)     accent else secondary)
+    private fun updateBack() {
+        binding.back.visibility =
+            if (supportFragmentManager.backStackEntryCount > 0) View.VISIBLE else View.GONE
     }
-
-    private fun browseFragment() =
-        supportFragmentManager.findFragmentByTag(TAG_BROWSE) as? BrowseFragment
-
-    private fun nowPlayingFragment() =
-        supportFragmentManager.findFragmentByTag(TAG_NOW_PLAYING) as? NowPlayingFragment
 
     companion object {
-        private const val TAG_BROWSE      = "browse"
-        private const val TAG_NOW_PLAYING = "now_playing"
+        private const val KEY_DESTINATION = "destination"
     }
 }

@@ -19,7 +19,7 @@ object SubsonicSettings {
     private const val KEY_PASS = "password"
 
     fun load(ctx: Context): Config {
-        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val p = Storage.prefs(ctx, PREFS)
         return Config(
             url      = p.getString(KEY_URL,  "") ?: "",
             username = p.getString(KEY_USER, "") ?: "",
@@ -28,7 +28,7 @@ object SubsonicSettings {
     }
 
     fun save(ctx: Context, config: Config) {
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        Storage.prefs(ctx, PREFS).edit()
             .putString(KEY_URL,  config.url.trimEnd('/'))
             .putString(KEY_USER, config.username.trim())
             .putString(KEY_PASS, config.password)
